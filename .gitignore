@@ -25,5 +25,6 @@ dist-ssr
 .opencode
 .env
 
-
-package-lock.json
+# Temporary files
+tmp/
+*.tmp

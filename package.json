@@ -1,15 +1,43 @@
 {
-  "name": "caddiepro.json",
+  "name": "caddiepro-backend",
   "version": "1.0.0",
-  "description": "backend de la aplicacion caddie pro",
-  "license": "ISC",
-  "author": "",
-  "type": "commonjs",
-  "main": "index.js",
+  "description": "Backend de la aplicación CaddiePro - Sistema de gestión de caddies de golf",
+  "main": "src/server.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "node prisma/seed.js",
+    "install:all": "npm install && npx prisma generate && npx prisma db push && npm run prisma:seed"
   },
+  "keywords": [
+    "caddie",
+    "golf",
+    "management"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "express": "^5.2.1"
+    "@prisma/client": "^6.1.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "prisma": "^6.1.0",
+    "supertest": "^7.1.4"
   }
 }

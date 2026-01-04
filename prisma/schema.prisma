@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Caddie {
+  id            String       @id @default(uuid())
+  name          String
+  listNumber    Int          // 1, 2, or 3
+  status        String       @default("Disponible") // Disponible, En campo, Ausente
+  phoneNumber   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  turns         Turn[]
+  attendance    Attendance[]
+  caddieQueue   CaddieQueue?
+
+  @@index([listNumber])
+  @@index([status])
+}
+
+model Turn {
+  id           String    @id @default(uuid())
+  caddieId     String
+  caddieName   String
+  listNumber   Int
+  startTime    DateTime  @default(now())
+  endTime      DateTime?
+  completed    Boolean   @default(false)
+  caddie       Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@index([caddieId])
+  @@index([listNumber])
+  @@index([startTime])
+  @@index([completed])
+}
+
+model Attendance {
+  id          String    @id @default(uuid())
+  caddieId    String
+  caddieName  String
+  listNumber  Int
+  date        DateTime  @db.Date
+  status      String    // Presente, Llegó tarde, No vino, Permiso
+  callTime    DateTime  @default(now())
+  arrivalTime DateTime?
+  turnsCount  Int       @default(0)
+  endTime     DateTime?
+  createdAt   DateTime  @default(now())
+  caddie      Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, date])
+  @@index([date])
+  @@index([listNumber])
+  @@index([status])
+}
+
+model ListSettings {
+  listNumber  Int    @id // 1, 2, or 3
+  callTime    String @default("06:00") // HH:mm format
+  order       String @default("ascendente") // ascendente or descendente
+  rangeStart  Int    @default(1)
+  rangeEnd    Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  content    String
+  targetList Int?     // null means all lists
+  createdAt  DateTime @default(now())
+  read       Boolean  @default(false)
+
+  @@index([targetList])
+  @@index([read])
+}
+
+model CaddieQueue {
+  id           String    @id @default(uuid())
+  caddieId     String    @unique
+  caddie       Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+  position     Int       @default(0)
+  listNumber   Int
+  available    Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([listNumber, position])
+  @@index([caddieId])
+}
+
+model Admin {
+  id         String   @id @default(uuid())
+  password   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
