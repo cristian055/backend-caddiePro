@@ -6,45 +6,41 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model Caddie {
-  id            String       @id @default(uuid())
-  name          String
-  listNumber    Int          // 1, 2, or 3
-  status        String       @default("Disponible") // Disponible, En campo, Ausente
-  phoneNumber   String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  turns         Turn[]
-  attendance    Attendance[]
-  caddieQueue   CaddieQueue?
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  listNumber  Int          // 1, 2, or 3
+  status      String       @default("Disponible") // Disponible, En campo, Ausente
+  phoneNumber String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  turns       Turn[]       @relation("CaddieTurns")
+  attendance  Attendance[] @relation("CaddieAttendance")
+  queue       CaddieQueue?
 
-  @@index([listNumber])
-  @@index([status])
+  @@map("caddies")
 }
 
 model Turn {
-  id           String    @id @default(uuid())
-  caddieId     String
-  caddieName   String
-  listNumber   Int
-  startTime    DateTime  @default(now())
-  endTime      DateTime?
-  completed    Boolean   @default(false)
-  caddie       Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  caddieId   String   @db.ObjectId
+  caddieName String
+  listNumber Int
+  startTime  DateTime @default(now())
+  endTime    DateTime?
+  completed  Boolean  @default(false)
+  caddie     Caddie   @relation("CaddieTurns", fields: [caddieId], references: [id], onDelete: Cascade)
 
-  @@index([caddieId])
-  @@index([listNumber])
-  @@index([startTime])
-  @@index([completed])
+  @@map("turns")
 }
 
 model Attendance {
-  id          String    @id @default(uuid())
-  caddieId    String
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  caddieId    String    @db.ObjectId
   caddieName  String
   listNumber  Int
   date        DateTime  @db.Date
@@ -54,52 +50,52 @@ model Attendance {
   turnsCount  Int       @default(0)
   endTime     DateTime?
   createdAt   DateTime  @default(now())
-  caddie      Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+  caddie      Caddie    @relation("CaddieAttendance", fields: [caddieId], references: [id], onDelete: Cascade)
 
   @@unique([caddieId, date])
-  @@index([date])
-  @@index([listNumber])
-  @@index([status])
+  @@map("attendance")
 }
 
 model ListSettings {
-  listNumber  Int    @id // 1, 2, or 3
-  callTime    String @default("06:00") // HH:mm format
-  order       String @default("ascendente") // ascendente or descendente
-  rangeStart  Int    @default(1)
-  rangeEnd    Int
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  listNumber Int     @id @map("_id")
+  callTime   String  @default("06:00") // HH:mm format
+  order      String  @default("ascendente") // ascendente or descendente
+  rangeStart Int     @default(1)
+  rangeEnd   Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("list_settings")
 }
 
 model Message {
-  id         String   @id @default(uuid())
-  content    String
-  targetList Int?     // null means all lists
-  createdAt  DateTime @default(now())
-  read       Boolean  @default(false)
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  content   String
+  targetList Int?    // null means all lists
+  createdAt DateTime @default(now())
+  read      Boolean  @default(false)
 
-  @@index([targetList])
-  @@index([read])
+  @@map("messages")
 }
 
 model CaddieQueue {
-  id           String    @id @default(uuid())
-  caddieId     String    @unique
-  caddie       Caddie    @relation(fields: [caddieId], references: [id], onDelete: Cascade)
-  position     Int       @default(0)
-  listNumber   Int
-  available    Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  caddieId   String   @unique @db.ObjectId
+  position   Int      @default(0)
+  listNumber Int
+  available  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  caddie     Caddie   @relation(fields: [caddieId], references: [id], onDelete: Cascade)
 
-  @@index([listNumber, position])
-  @@index([caddieId])
+  @@map("caddie_queue")
 }
 
 model Admin {
-  id         String   @id @default(uuid())
-  password   String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admins")
 }

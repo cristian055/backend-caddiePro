@@ -6,33 +6,43 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Starting seed...');
 
-  // Create default admin
-  const hashedPassword = await bcrypt.hash('admin123', 10);
-  const admin = await prisma.admin.upsert({
-    where: { id: 'default-admin' },
-    update: {},
-    create: {
-      id: 'default-admin',
-      password: hashedPassword,
-    },
-  });
-  console.log('Created admin user. Default password: admin123');
+  // Create default admin - MongoDB generates ObjectId automatically
+  // Check if admin already exists
+  const existingAdmin = await prisma.admin.findFirst();
+  if (!existingAdmin) {
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+    const admin = await prisma.admin.create({
+      data: {
+        password: hashedPassword,
+      },
+    });
+    console.log('Created admin user. Default password: admin123');
+    console.log('Admin ID:', admin.id);
+  } else {
+    console.log('Admin already exists');
+  }
 
   // Create default list settings
   const lists = [1, 2, 3];
   for (const listNumber of lists) {
-    await prisma.listSettings.upsert({
+    const existingSettings = await prisma.listSettings.findUnique({
       where: { listNumber },
-      update: {},
-      create: {
-        listNumber,
-        callTime: '06:00',
-        order: 'ascendente',
-        rangeStart: 1,
-        rangeEnd: 20,
-      },
     });
-    console.log(`Created list settings for List ${listNumber}`);
+
+    if (!existingSettings) {
+      await prisma.listSettings.create({
+        data: {
+          listNumber,
+          callTime: '06:00',
+          order: 'ascendente',
+          rangeStart: 1,
+          rangeEnd: 20,
+        },
+      });
+      console.log(`Created list settings for List ${listNumber}`);
+    } else {
+      console.log(`List settings for List ${listNumber} already exists`);
+    }
 
     // Create sample caddies for each list
     const sampleCaddies = [
@@ -45,11 +55,8 @@ async function main() {
     ];
 
     for (let i = 0; i < sampleCaddies.length; i++) {
-      const caddie = await prisma.caddie.upsert({
-        where: { id: `caddie-${listNumber}-${i + 1}` },
-        update: {},
-        create: {
-          id: `caddie-${listNumber}-${i + 1}`,
+      const caddie = await prisma.caddie.create({
+        data: {
           name: sampleCaddies[i],
           listNumber,
           status: 'Disponible',
@@ -57,10 +64,8 @@ async function main() {
       });
 
       // Create queue entry
-      await prisma.caddieQueue.upsert({
-        where: { caddieId: caddie.id },
-        update: {},
-        create: {
+      await prisma.caddieQueue.create({
+        data: {
           caddieId: caddie.id,
           listNumber,
           position: i + 1,
@@ -72,13 +77,18 @@ async function main() {
   }
 
   // Create a welcome message
-  await prisma.message.create({
-    data: {
-      content: '¡Bienvenido al sistema de gestión de Caddies! 🏌️‍♂️',
-      targetList: null,
-    },
-  });
-  console.log('Created welcome message');
+  const messageCount = await prisma.message.count();
+  if (messageCount === 0) {
+    await prisma.message.create({
+      data: {
+        content: '¡Bienvenido al sistema de gestión de Caddies! 🏌️‍♂️',
+        targetList: null,
+      },
+    });
+    console.log('Created welcome message');
+  } else {
+    console.log('Messages already exist');
+  }
 
   console.log('Seed completed successfully!');
 }

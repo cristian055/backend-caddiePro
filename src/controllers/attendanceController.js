@@ -54,11 +54,13 @@ export const createAttendance = async (req, res) => {
     }
 
     // Check if attendance already exists for this caddie on this date
-    const existing = await prisma.attendance.findUnique({
+    // MongoDB doesn't support composite key syntax in findUnique, use findFirst instead
+    const existing = await prisma.attendance.findFirst({
       where: {
-        caddieId_date: {
-          caddieId,
-          date: new Date(date),
+        caddieId: caddieId,
+        date: {
+          gte: new Date(date),
+          lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
         },
       },
     });
