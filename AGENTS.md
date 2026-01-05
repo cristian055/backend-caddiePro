@@ -6,183 +6,201 @@ This document provides guidelines for AI agents and developers working on the Ca
 
 ### Running Tests
 ```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with coverage report
-npm run test:coverage
-
-# Run a single test file
-npm run test:single tests/database.test.js
-
-# Run specific test by name
-npm run test:single -- --testNamePattern="should connect to database"
+npm test                           # Run all tests
+npm run test:watch                # Watch mode for development
+npm run test:coverage             # With coverage report
+npm run test:single tests/file.test.js    # Single file
+npm run test:single -- --testNamePattern="should get"  # By pattern
 ```
 
 ### Database Commands
 ```bash
-npm run prisma:generate    # Generate Prisma client
-npm run prisma:push        # Push schema to database
-npm run prisma:migrate      # Create migrations
-npm run prisma:studio      # Visual database browser
-npm run prisma:seed        # Seed database
-npm run reset:admin        # Check admin status
-npm run reset:admin:force  # Reset admin password to "admin123"
+npm run prisma:generate    # Generate client after schema changes
+npm run prisma:push        # Push schema (for development)
+npm run prisma:migrate     # Create migrations (for production)
+npm run prisma:studio      # Visual database editor
+npm run prisma:seed        # Seed initial data
+npm run reset:admin:force  # Reset admin password to admin123
 ```
 
-### Development Commands
+### Development
 ```bash
-npm run dev        # Development with hot reload
-npm start           # Production server
-npm run install:all # Full setup
+npm run dev        # Hot reload development server
+npm start          # Production server
+npm run install:all  # Full setup: install + prisma + seed
 ```
 
 ## Code Style Guidelines
 
 ### Imports & File Naming
-- Use ES modules: `import`/`export`
-- Group: external libs → internal → relative
-- Named exports preferred
-- Controllers: `*Controller.js`, Routes: `*.js`, Tests: `*.test.js`
-- Variable naming: `camelCase` (functions), `PascalCase` (classes), `UPPER_SNAKE_CASE` (constants)
+- Use ES modules (`import`/`export`)
+- Order: external libs → internal → relative
+- Named exports for controllers/utilities
+- File naming: `*Controller.js`, `*.js` (routes), `*.test.js`
 
 ```javascript
-// ✅ Good
+// ✅ Correct order
 import express from 'express';
 import prisma from '../config/database.js';
 import { authenticate } from '../middleware/auth.js';
 ```
 
+### Naming Conventions
+- Variables/functions: `camelCase`
+- Classes: `PascalCase`
+- Constants: `UPPER_SNAKE_CASE`
+- Model IDs: `PascalCase` (e.g., `Caddie`, `Turn`)
+
 ### Error Handling
-- Always use try-catch in async functions
-- Consistent error format: `{ error: string }`
-- Log errors with context
-- Return proper HTTP status codes
+- Always use try-catch in async controllers
+- Log errors with context: `console.error('Action error:', error)`
+- Consistent format: `{ error: 'message' }`
+- Proper HTTP status codes
 
 ```javascript
-export const createX = async (req, res) => {
+export const getCaddie = async (req, res) => {
   try {
-    const result = await prisma.x.create({ data: req.body });
-    res.status(201).json(result);
+    const caddie = await prisma.caddie.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!caddie) return res.status(404).json({ error: 'Not found' });
+    res.json(caddie);
   } catch (error) {
-    console.error('Create X error:', error);
+    console.error('Get caddie error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 ```
 
 ### HTTP Response Patterns
-- GET: 200 (data), 404 (not found)
-- POST: 201 (created), 400 (validation)
-- PUT: 200 (updated), 404 (not found)
-- DELETE: 204 (no content), 404 (not found)
-- Auth: 401 (unauthorized), 403 (forbidden)
+| Method | Success | Error |
+|--------|---------|-------|
+| GET | 200 | 404 |
+| POST | 201 | 400, 409 |
+| PUT | 200 | 400, 404 |
+| DELETE | 204 | 404 |
+| Auth | 200 | 401, 403 |
 
-### Database Operations
-- Use Prisma Client from `src/config/database.js`
-- Handle null returns with checks
-- Use transactions for multi-step operations
-- Run `npm run prisma:generate` after schema changes
+### Database Operations (Prisma + MongoDB)
+- Import prisma from `src/config/database.js`
+- MongoDB uses `@db.ObjectId` for relations
+- Composite unique constraints use `findFirst`, not `findUnique`
+- No `@index` in MongoDB schema
 
 ```javascript
-// ✅ With null check
-const caddie = await prisma.caddie.findUnique({ where: { id: req.params.id } });
-if (!caddie) return res.status(404).json({ error: 'Not found' });
-res.json(caddie);
-
-// ✅ Transaction
-await prisma.$transaction(async (tx) => {
-  await tx.caddie.update({ ... });
-  await tx.caddieQueue.update({ ... });
+// ✅ MongoDB composite unique check
+const existing = await prisma.attendance.findFirst({
+  where: {
+    caddieId: caddieId,
+    date: { gte: startDate, lt: endDate }
+  }
 });
+
+// ❌ This syntax doesn't work in MongoDB
+// where: { caddieId_date: { caddieId, date } }
 ```
 
-### Authentication & Validation
-- JWT tokens for auth
-- Protect admin routes with `authenticate` middleware
-- Public routes use `optionalAuth`
+### Authentication
+- JWT tokens in Authorization header: `Bearer <token>`
+- Admin routes: use `authenticate` middleware
+- Public routes: use `optionalAuth`
 - Use express-validator for input validation
 
 ```javascript
 router.post('/caddies', authenticate,
-  [body('name').notEmpty(), body('listNumber').isIn(['1','2','3'])],
+  [body('name').notEmpty(), body('listNumber').isInt({ min: 1, max: 3 })],
   createCaddie
 );
 ```
 
-### Comments
+## Comments
 - JSDoc for complex functions
-- Document non-obvious business logic
-- Keep comments up-to-date
+- Document business logic decisions
+- Keep comments synchronized with code
 
 ## Testing Guidelines
-
-### Test Structure
-- `describe` to group tests, `test` for cases
+- Use `describe` for grouping, `test` for cases
 - `beforeAll`/`afterAll` for setup/teardown
+- Name: "should [action] when [condition]"
 - Aim for >80% coverage
 
-### Test Naming
-- Pattern: "should [action] when [condition]"
-- Be descriptive
-
 ```javascript
-test('should get all caddies', async () => { ... });
 test('should return 404 for non-existent caddie', async () => { ... });
+test('should create turn and update caddie status', async () => { ... });
 ```
 
 ## Environment Variables
 
-- Never commit `.env`
+- Never commit `.env` files
 - Use `.env.example` as template
-- Use `process.env.VARIABLE_NAME || default`
+- Access: `process.env.VARIABLE_NAME || default`
+
+### Required Variables
+```
+DATABASE_URL=mongodb+srv://...
+JWT_SECRET=your-secret-key
+JWT_EXPIRES_IN=24h
+CORS_ORIGINS=http://localhost:5173,https://frontend.vercel.app
+```
 
 ## Git Commit Guidelines
 
 Conventional commits: `type(scope): description`
-- Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
-- Atomic, focused commits
-- Messages in English
+- `feat`: new feature
+- `fix`: bug fix
+- `refactor`: code restructure
+- `test`: tests
+- `docs`: documentation
+- `chore`: maintenance
 
 ```
 feat(auth): add JWT token refresh
 fix(caddies): resolve queue calculation bug
-test: add database tests
 docs: update API documentation
 ```
 
-## Common Patterns
+## Architecture Notes
 
-### Controller Pattern
-```javascript
-export const getAllX = async (req, res) => {
-  try {
-    const result = await prisma.x.findMany();
-    res.json(result);
-  } catch (error) {
-    console.error('Get X error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+### Service Structure
+```
+src/
+├── config/         # Database, env config
+├── controllers/    # Business logic
+├── middleware/     # Auth, validation
+├── routes/         # Express routes
+├── utils/          # JWT, password helpers
+└── server.js       # Entry point
 ```
 
-### Route Pattern
-```javascript
-import { Router } from 'express';
-import { authenticate, optionalAuth } from '../middleware/auth.js';
+### API Endpoints
+- Auth: `/api/auth/*`
+- Caddies: `/api/caddies/*`
+- Turns: `/api/turns/*`
+- Attendance: `/api/attendance/*`
+- List Settings: `/api/list-settings/*`
+- Reports: `/api/reports/*`
+- Messages: `/api/messages/*`
 
-const router = Router();
-router.get('/', optionalAuth, getAllX);
-router.post('/', authenticate, createX);
-export default router;
-```
+### Database Models (MongoDB)
+- `caddies` - Caddie information with queue relation
+- `turns` - Golf turns/shifts
+- `attendance` - Daily attendance records
+- `caddie_queue` - Queue positions per list
+- `list_settings` - List configuration (1, 2, 3)
+- `messages` - Broadcast messages
+- `admins` - Admin users
 
-## Notes
+## Deployment (Vercel)
 
-- Server: port 3000, health check at `GET /health`
-- CORS enabled (restrict in production)
-- Default admin password: `admin123` (change in production)
-- Run `npm run prisma:studio` to inspect database
+- Serverless functions (Express app)
+- Set all env vars in Vercel Dashboard
+- CORS_ORIGINS must include frontend URLs
+- DATABASE_URL must include database name in path
+- Redeploy after env var changes
+
+## Common Issues
+
+1. **CORS errors**: Add origin to CORS_ORIGINS env var
+2. **JWT errors**: Ensure JWT_EXPIRES_IN is `"24h"` (string, not quoted in env)
+3. **MongoDB connection**: DATABASE_URL must include database name: `/golfpro`
+4. **Prisma errors**: Run `npx prisma generate` after schema changes

@@ -18,6 +18,7 @@
     "prisma:seed": "node prisma/seed.js",
     "reset:admin": "node scripts/reset-admin.js check",
     "reset:admin:force": "node scripts/reset-admin.js reset",
+    "import:caddies": "node scripts/import-caddies.js",
     "install:all": "npm install && npx prisma generate && npx prisma db push && npm run prisma:seed"
   },
   "keywords": [
