@@ -7,6 +7,7 @@ import {
   createCaddie,
   updateCaddie,
   deleteCaddie,
+  updateCaddieStatus,
 } from '../controllers/caddieController.js';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
 
@@ -33,6 +34,18 @@ router.put(
   authenticate,
   [body('listNumber').optional().isIn(['1', '2', '3']).withMessage('ListNumber must be 1, 2, or 3')],
   updateCaddie
+);
+
+// PATCH /:id/status - Update caddie status (emits WebSocket event)
+router.patch(
+  '/:id/status',
+  authenticate,
+  [
+    body('status')
+      .isIn(['Disponible', 'En campo', 'Ausente'])
+      .withMessage('Status must be: Disponible, En campo, or Ausente'),
+  ],
+  updateCaddieStatus
 );
 
 router.delete('/:id', authenticate, deleteCaddie);

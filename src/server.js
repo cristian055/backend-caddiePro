@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -11,11 +12,20 @@ import listSettingsRoutes from './routes/listSettings.js';
 import reportsRoutes from './routes/reports.js';
 import messagesRoutes from './routes/messages.js';
 
+// Import WebSocket initialization
+import { initializeWebSocket } from './config/websocket.js';
+
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Create HTTP server for Express + WebSocket
+const httpServer = createServer(app);
+
+// Initialize WebSocket server
+initializeWebSocket(httpServer);
 
 // CORS configuration
 const corsOptions = {
@@ -84,10 +94,11 @@ app.use((err, req, res, next) => {
 
 // Start server only if this file is run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`API URL: http://localhost:${PORT}`);
+    console.log(`WebSocket: ws://localhost:${PORT}`);
   });
 }
 

@@ -1,62 +1,44 @@
-# AGENTS.md - Development Guidelines for CaddiePro Backend
+# AGENTS.md - CaddiePro Backend Guidelines
 
-This document provides guidelines for AI agents and developers working on the CaddiePro backend API.
+## Commands
 
-## Build, Lint, and Test Commands
-
-### Running Tests
 ```bash
-npm test                           # Run all tests
-npm run test:watch                # Watch mode for development
-npm run test:coverage             # With coverage report
+# Tests
+npm test                           # All tests
 npm run test:single tests/file.test.js    # Single file
-npm run test:single -- --testNamePattern="should get"  # By pattern
+npm run test:single -- --testNamePattern="name"  # By pattern
+
+# Database
+npm run prisma:generate    # Regenerate client
+npm run prisma:push        # Push schema (dev)
+npm run prisma:seed        # Seed data
+npm run reset:admin:force  # Reset admin password
+npm run import:caddies     # Import from CSV
+
+# Server
+npm run dev    # Hot reload (port 3000)
+npm start      # Production
 ```
 
-### Database Commands
-```bash
-npm run prisma:generate    # Generate client after schema changes
-npm run prisma:push        # Push schema (for development)
-npm run prisma:migrate     # Create migrations (for production)
-npm run prisma:studio      # Visual database editor
-npm run prisma:seed        # Seed initial data
-npm run reset:admin:force  # Reset admin password to admin123
-```
+## Code Style
 
-### Development
-```bash
-npm run dev        # Hot reload development server
-npm start          # Production server
-npm run install:all  # Full setup: install + prisma + seed
-```
-
-## Code Style Guidelines
-
-### Imports & File Naming
-- Use ES modules (`import`/`export`)
+### Imports & Files
+- ES modules (`import`/`export`)
 - Order: external libs → internal → relative
-- Named exports for controllers/utilities
-- File naming: `*Controller.js`, `*.js` (routes), `*.test.js`
+- Files: `*Controller.js`, `*.js` (routes), `*.test.js`
 
 ```javascript
-// ✅ Correct order
 import express from 'express';
 import prisma from '../config/database.js';
 import { authenticate } from '../middleware/auth.js';
 ```
 
-### Naming Conventions
+### Naming
 - Variables/functions: `camelCase`
 - Classes: `PascalCase`
 - Constants: `UPPER_SNAKE_CASE`
-- Model IDs: `PascalCase` (e.g., `Caddie`, `Turn`)
 
 ### Error Handling
-- Always use try-catch in async controllers
-- Log errors with context: `console.error('Action error:', error)`
-- Consistent format: `{ error: 'message' }`
-- Proper HTTP status codes
-
 ```javascript
 export const getCaddie = async (req, res) => {
   try {
@@ -72,135 +54,83 @@ export const getCaddie = async (req, res) => {
 };
 ```
 
-### HTTP Response Patterns
+### HTTP Status Codes
 | Method | Success | Error |
 |--------|---------|-------|
 | GET | 200 | 404 |
 | POST | 201 | 400, 409 |
 | PUT | 200 | 400, 404 |
 | DELETE | 204 | 404 |
-| Auth | 200 | 401, 403 |
 
-### Database Operations (Prisma + MongoDB)
+## Database (Prisma + MongoDB)
+
 - Import prisma from `src/config/database.js`
-- MongoDB uses `@db.ObjectId` for relations
-- Composite unique constraints use `findFirst`, not `findUnique`
+- Composite unique: use `findFirst`, not `findUnique`
 - No `@index` in MongoDB schema
 
 ```javascript
-// ✅ MongoDB composite unique check
+// MongoDB composite check
 const existing = await prisma.attendance.findFirst({
-  where: {
-    caddieId: caddieId,
-    date: { gte: startDate, lt: endDate }
-  }
+  where: { caddieId, date: { gte: start, lt: end } }
 });
-
-// ❌ This syntax doesn't work in MongoDB
-// where: { caddieId_date: { caddieId, date } }
 ```
 
-### Authentication
-- JWT tokens in Authorization header: `Bearer <token>`
-- Admin routes: use `authenticate` middleware
-- Public routes: use `optionalAuth`
-- Use express-validator for input validation
+## Authentication
 
-```javascript
-router.post('/caddies', authenticate,
-  [body('name').notEmpty(), body('listNumber').isInt({ min: 1, max: 3 })],
-  createCaddie
-);
-```
-
-## Comments
-- JSDoc for complex functions
-- Document business logic decisions
-- Keep comments synchronized with code
-
-## Testing Guidelines
-- Use `describe` for grouping, `test` for cases
-- `beforeAll`/`afterAll` for setup/teardown
-- Name: "should [action] when [condition]"
-- Aim for >80% coverage
-
-```javascript
-test('should return 404 for non-existent caddie', async () => { ... });
-test('should create turn and update caddie status', async () => { ... });
-```
+- JWT: `Authorization: Bearer <token>`
+- Admin routes: `authenticate` middleware
+- Public routes: `optionalAuth`
+- Validation: `express-validator`
 
 ## Environment Variables
 
-- Never commit `.env` files
-- Use `.env.example` as template
-- Access: `process.env.VARIABLE_NAME || default`
-
-### Required Variables
 ```
-DATABASE_URL=mongodb+srv://...
+DATABASE_URL=mongodb+srv://.../golfpro
 JWT_SECRET=your-secret-key
 JWT_EXPIRES_IN=24h
 CORS_ORIGINS=http://localhost:5173,https://frontend.vercel.app
 ```
 
-## Git Commit Guidelines
+## Architecture
 
-Conventional commits: `type(scope): description`
-- `feat`: new feature
-- `fix`: bug fix
-- `refactor`: code restructure
-- `test`: tests
-- `docs`: documentation
-- `chore`: maintenance
-
-```
-feat(auth): add JWT token refresh
-fix(caddies): resolve queue calculation bug
-docs: update API documentation
-```
-
-## Architecture Notes
-
-### Service Structure
 ```
 src/
-├── config/         # Database, env config
+├── config/         # database.js, websocket.js
 ├── controllers/    # Business logic
-├── middleware/     # Auth, validation
+├── middleware/     # auth.js
 ├── routes/         # Express routes
-├── utils/          # JWT, password helpers
+├── utils/          # jwt.js, password.js, websocketEmitter.js
 └── server.js       # Entry point
 ```
 
-### API Endpoints
-- Auth: `/api/auth/*`
-- Caddies: `/api/caddies/*`
-- Turns: `/api/turns/*`
-- Attendance: `/api/attendance/*`
-- List Settings: `/api/list-settings/*`
-- Reports: `/api/reports/*`
-- Messages: `/api/messages/*`
+## API Endpoints
+- `/api/auth/*` - Authentication
+- `/api/caddies/*` - Caddie CRUD + PATCH /:id/status
+- `/api/turns/*` - Golf turns
+- `/api/attendance/*` - Daily attendance
+- `/api/list-settings/*` - List configuration
+- `/api/reports/*` - Reports
+- `/api/messages/*` - Broadcast messages
 
-### Database Models (MongoDB)
-- `caddies` - Caddie information with queue relation
-- `turns` - Golf turns/shifts
-- `attendance` - Daily attendance records
-- `caddie_queue` - Queue positions per list
-- `list_settings` - List configuration (1, 2, 3)
-- `messages` - Broadcast messages
-- `admins` - Admin users
+## WebSocket Events
 
-## Deployment (Vercel)
+| Event | Payload |
+|-------|---------|
+| `caddie:status_changed` | `{caddieId, name, status, listNumber, timestamp}` |
+| `caddie:added` | `{caddieId, name, listNumber, status, ...}` |
+| `caddie:updated` | `{caddieId, updates, timestamp}` |
+| `caddie:deleted` | `{caddieId, timestamp}` |
 
-- Serverless functions (Express app)
-- Set all env vars in Vercel Dashboard
-- CORS_ORIGINS must include frontend URLs
-- DATABASE_URL must include database name in path
-- Redeploy after env var changes
+Rooms: `list-1`, `list-2`, `list-3`
+
+## Git Commits
+
+`type(scope): description`
+- `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ## Common Issues
 
-1. **CORS errors**: Add origin to CORS_ORIGINS env var
-2. **JWT errors**: Ensure JWT_EXPIRES_IN is `"24h"` (string, not quoted in env)
-3. **MongoDB connection**: DATABASE_URL must include database name: `/golfpro`
-4. **Prisma errors**: Run `npx prisma generate` after schema changes
+1. **CORS**: Add origin to `CORS_ORIGINS`
+2. **JWT**: Ensure `JWT_EXPIRES_IN=24h` (not quoted)
+3. **MongoDB**: `DATABASE_URL` must include `/golfpro`
+4. **Prisma**: Run `npx prisma generate` after schema changes

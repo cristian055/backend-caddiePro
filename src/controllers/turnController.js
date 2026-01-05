@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { emitCaddieStatusChanged } from '../utils/websocketEmitter.js';
 
 export const getAllTurns = async (req, res) => {
   try {
@@ -62,10 +63,13 @@ export const createTurn = async (req, res) => {
     });
 
     // Update caddie status
-    await prisma.caddie.update({
+    const caddie = await prisma.caddie.update({
       where: { id: caddieId },
       data: { status: 'En campo' },
     });
+
+    // Emit WebSocket event for real-time update
+    emitCaddieStatusChanged(caddie);
 
     // Remove from available queue
     await prisma.caddieQueue.update({
@@ -94,10 +98,13 @@ export const updateTurn = async (req, res) => {
     });
 
     // Update caddie status back to available
-    await prisma.caddie.update({
+    const caddie = await prisma.caddie.update({
       where: { id: turn.caddieId },
       data: { status: 'Disponible' },
     });
+
+    // Emit WebSocket event for real-time update
+    emitCaddieStatusChanged(caddie);
 
     // Add back to queue at the end
     const listNumber = turn.listNumber;
