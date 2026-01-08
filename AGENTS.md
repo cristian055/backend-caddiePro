@@ -136,6 +136,14 @@ prisma/             # schema.prisma, seed.js
 ```
 
 ## API Endpoints
+
+### Public Endpoints (No Authentication Required)
+- `/api/public/queue` - Get current queue state (top 5 per category)
+- `/api/public/lists` - Get all caddies organized by list/category
+- `/api/public/lists/:listNumber` - Get caddies from a specific list (1=Primera, 2=Segunda, 3=Tercera)
+- `/api/public/weekly` - Get weekly schedule (read-only)
+
+### Admin Endpoints (Authentication Required)
 - `/api/auth/*` - Authentication
 - `/api/caddies/*` - Caddie CRUD + PATCH /:id/status
 - `/api/turns/*` - Golf turns
@@ -145,13 +153,32 @@ prisma/             # schema.prisma, seed.js
 - `/api/messages/*` - Broadcast messages
 
 ## WebSocket Events
+
+### Events Emitted by Server
 | Event | Payload |
 |-------|---------|
 | `caddie:status_changed` | `{caddieId, name, status, listNumber, timestamp}` |
 | `caddie:added` | `{caddieId, name, listNumber, status, ...}` |
 | `caddie:updated` | `{caddieId, updates, timestamp}` |
 | `caddie:deleted` | `{caddieId, timestamp}` |
-Rooms: `list-1`, `list-2`, `list-3`
+
+### Client Events (Public Users)
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `subscribe` | `{listNumbers: [1, 2, 3]}` | Join list rooms to receive updates |
+| `unsubscribe` | `{listNumbers: [1, 2, 3]}` | Leave list rooms |
+| `ping` | - | Connection health check |
+| `pong` | `{timestamp}` | Response to ping |
+
+### Rooms
+- `list-1` - Primera category updates
+- `list-2` - Segunda category updates
+- `list-3` - Tercera category updates
+
+### Authentication
+- **Public connections**: No token required. Can connect without authentication.
+- **Authenticated connections**: Include JWT token in `socket.handshake.auth.token` or query param.
+- **Public users**: Use `?lists=1,2,3` query param to auto-join rooms on connect, or use `subscribe` event after connect.
 
 ## Git Commits
 `type(scope): description` - `feat`, `fix`, `refactor`, `test`, `docs`, `chore`

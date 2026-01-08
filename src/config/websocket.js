@@ -23,17 +23,23 @@ export function initializeWebSocket(server) {
     pingTimeout: 20000,
   });
 
-  // Authentication middleware
+  // Authentication middleware - allows both authenticated and public connections
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token || socket.handshake.query.token;
 
+      // Allow public connections without token
       if (!token) {
-        console.log('[WS] Connection rejected: No token provided');
-        return next(new Error('Authentication required'));
+        console.log('[WS] Public connection established');
+        socket.user = {
+          isAdmin: false,
+          isPublic: true,
+          listNumbers: null,
+        };
+        return next();
       }
 
-      // Verify JWT token
+      // Verify JWT token if provided
       const decoded = jwt.verify(token, JWT_SECRET);
       
       // Get user info from database
@@ -41,12 +47,12 @@ export function initializeWebSocket(server) {
 
       if (decoded.adminId) {
         // Admin user
-        userInfo = { adminId: decoded.adminId, listNumbers: [1, 2, 3], isAdmin: true };
+        userInfo = { adminId: decoded.adminId, listNumbers: [1, 2, 3], isAdmin: true, isPublic: false };
       } else if (decoded.caddieId) {
         // Caddie user - get their list number
         const caddie = await prisma.caddie.findUnique({
           where: { id: decoded.caddieId },
-          select: { id: true, name: true, listNumber: true },
+          select: { id: true, name: true, number: true },
         });
 
         if (!caddie) {
@@ -54,11 +60,17 @@ export function initializeWebSocket(server) {
           return next(new Error('User not found'));
         }
 
+        // Determine list number based on category
+        const categoryToNumber = { 'Primera': 1, 'Segunda': 2, 'Tercera': 3 };
+        const listNumber = categoryToNumber[caddie.category] || 1;
+
         userInfo = {
           caddieId: caddie.id,
           caddieName: caddie.name,
-          listNumbers: [caddie.listNumber],
+          caddieNumber: caddie.number,
+          listNumbers: [listNumber],
           isAdmin: false,
+          isPublic: false,
         };
       }
 
@@ -75,22 +87,64 @@ export function initializeWebSocket(server) {
 
   // Connection handler
   io.on('connection', (socket) => {
-    const { adminId, caddieId, listNumbers, isAdmin } = socket.user;
+    const { adminId, caddieId, listNumbers, isAdmin, isPublic } = socket.user;
 
-    console.log(`[WS] Client connected: ${caddieId || adminId}`);
+    console.log(`[WS] Client connected: ${isPublic ? 'PUBLIC' : (caddieId || adminId)}`);
 
     // Join list rooms based on user access
     if (listNumbers && listNumbers.length > 0) {
       listNumbers.forEach((listNumber) => {
         const room = `list-${listNumber}`;
         socket.join(room);
-        console.log(`[WS] ${caddieId || adminId} joined room: ${room}`);
+        console.log(`[WS] ${isPublic ? 'PUBLIC' : (caddieId || adminId)} joined room: ${room}`);
+      });
+    }
+
+    // Allow public users to join specific list rooms
+    if (isPublic) {
+      // Check if public user specified lists to join via query params
+      const requestedLists = socket.handshake.query.lists;
+      if (requestedLists) {
+        const listNums = requestedLists.split(',').map(n => parseInt(n.trim()));
+        listNums.forEach((listNumber) => {
+          if ([1, 2, 3].includes(listNumber)) {
+            const room = `list-${listNumber}`;
+            socket.join(room);
+            console.log(`[WS] PUBLIC user joined room: ${room}`);
+          }
+        });
+      }
+
+      // Handle subscribe event for public users to join/leave rooms
+      socket.on('subscribe', (data) => {
+        if (data && data.listNumbers && Array.isArray(data.listNumbers)) {
+          data.listNumbers.forEach((listNumber) => {
+            if ([1, 2, 3].includes(listNumber)) {
+              const room = `list-${listNumber}`;
+              socket.join(room);
+              console.log(`[WS] PUBLIC user subscribed to: ${room}`);
+            }
+          });
+        }
+      });
+
+      // Handle unsubscribe event for public users to leave rooms
+      socket.on('unsubscribe', (data) => {
+        if (data && data.listNumbers && Array.isArray(data.listNumbers)) {
+          data.listNumbers.forEach((listNumber) => {
+            if ([1, 2, 3].includes(listNumber)) {
+              const room = `list-${listNumber}`;
+              socket.leave(room);
+              console.log(`[WS] PUBLIC user unsubscribed from: ${room}`);
+            }
+          });
+        }
       });
     }
 
     // Handle disconnection
     socket.on('disconnect', (reason) => {
-      console.log(`[WS] Client disconnected: ${caddieId || adminId} (${reason})`);
+      console.log(`[WS] Client disconnected: ${isPublic ? 'PUBLIC' : (caddieId || adminId)} (${reason})`);
     });
 
     // Handle ping for connection status

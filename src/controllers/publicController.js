@@ -1,6 +1,14 @@
 import prisma from '../config/database.js';
 
 const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const VALID_CATEGORIES = ['Primera', 'Segunda', 'Tercera'];
+
+// Map list numbers to categories
+const LIST_TO_CATEGORY = {
+  '1': 'Primera',
+  '2': 'Segunda',
+  '3': 'Tercera',
+};
 
 /**
  * GET /public/queue
@@ -10,7 +18,7 @@ export const getPublicQueue = async (req, res) => {
   try {
     // Get list configurations
     const listConfigs = await prisma.listConfig.findMany();
-    
+
     // Build queue for each category
     const queue = {
       Primera: [],
@@ -44,7 +52,7 @@ export const getPublicQueue = async (req, res) => {
     }
 
     // If no configs exist, get caddies by default order
-    for (const category of ['Primera', 'Segunda', 'Tercera']) {
+    for (const category of VALID_CATEGORIES) {
       if (queue[category].length === 0) {
         const caddies = await prisma.caddie.findMany({
           where: {
@@ -76,6 +84,129 @@ export const getPublicQueue = async (req, res) => {
     });
   } catch (error) {
     console.error('Get public queue error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /public/lists
+ * Get all caddies organized by list/category (public access)
+ */
+export const getPublicCaddies = async (req, res) => {
+  try {
+    const { status, location } = req.query;
+
+    // Build where clause
+    const where = {
+      isActive: true,
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (location) {
+      where.location = location;
+    }
+
+    // Get caddies by category
+    const caddiesByCategory = {};
+
+    for (const category of VALID_CATEGORIES) {
+      const caddies = await prisma.caddie.findMany({
+        where: {
+          ...where,
+          category,
+        },
+        orderBy: [{ number: 'asc' }],
+      });
+
+      caddiesByCategory[category] = caddies.map(c => ({
+        id: c.id,
+        name: c.name,
+        number: c.number,
+        status: c.status,
+        category: c.category,
+        weekendPriority: c.weekendPriority,
+        location: c.location,
+        role: c.role,
+      }));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...caddiesByCategory,
+        lastUpdate: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Get public caddies error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /public/lists/:listNumber
+ * Get caddies from a specific list (public access)
+ */
+export const getPublicCaddiesByList = async (req, res) => {
+  try {
+    const { listNumber } = req.params;
+    const { status } = req.query;
+
+    // Validate list number
+    if (!['1', '2', '3'].includes(listNumber)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid list number. Must be 1, 2, or 3' },
+      });
+    }
+
+    const category = LIST_TO_CATEGORY[listNumber];
+
+    // Build where clause
+    const where = {
+      isActive: true,
+      category,
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    // Get caddies for this list
+    const caddies = await prisma.caddie.findMany({
+      where,
+      orderBy: [{ number: 'asc' }],
+    });
+
+    res.json({
+      success: true,
+      data: {
+        listNumber: parseInt(listNumber),
+        category,
+        caddies: caddies.map(c => ({
+          id: c.id,
+          name: c.name,
+          number: c.number,
+          status: c.status,
+          category: c.category,
+          weekendPriority: c.weekendPriority,
+          location: c.location,
+          role: c.role,
+        })),
+        lastUpdate: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Get public caddies by list error:', error);
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
@@ -118,7 +249,7 @@ export const getPublicWeekly = async (req, res) => {
             count: r.count,
           })),
         })),
-        assignments: shifts.flatMap(s => 
+        assignments: shifts.flatMap(s =>
           s.assignments.map(a => ({
             shiftId: a.shiftId,
             caddieId: a.caddieId,
