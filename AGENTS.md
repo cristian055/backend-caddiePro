@@ -77,13 +77,7 @@ export const getCaddie = async (req, res) => {
 ```
 
 ### HTTP Status Codes
-| Method | Success | Error |
-|--------|---------|-------|
-| GET | 200 | 404 |
-| POST | 201 | 400, 409 |
-| PUT | 200 | 400, 404 |
-| DELETE | 200 (soft delete) | 404 |
-| PATCH | 200 | 400, 404 |
+GET: 200/404 | POST: 201/400/409 | PUT: 200/400/404 | DELETE: 200/404 | PATCH: 200/400/404
 
 ### Validation
 Use `express-validator` middleware in routes:
@@ -160,8 +154,7 @@ prisma/             # schema.prisma, seed.js
 Rooms: `list-1`, `list-2`, `list-3`
 
 ## Git Commits
-`type(scope): description`
-- `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+`type(scope): description` - `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ## Common Issues
 1. **CORS**: Add origin to `CORS_ORIGINS`
