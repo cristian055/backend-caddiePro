@@ -7,18 +7,33 @@ import { emitToList, emitToAll, getIO } from '../config/websocket.js';
 
 /**
  * Emit caddie status changed event
- * @param {object} caddie - Caddie object with id, name, status, category
+ * @param {object} caddie - Caddie object with id, name, status, category, number
+ * @param {string} previousStatus - The previous status before the change
  */
-export function emitCaddieStatusChanged(caddie) {
+export function emitCaddieStatusChanged(caddie, previousStatus = null) {
   const category = caddie.category || 'Primera';
-  emitToAll('caddie:status:changed', {
+  const categoryToListNumber = { 'Primera': 1, 'Segunda': 2, 'Tercera': 3 };
+  const listNumber = categoryToListNumber[category] || 1;
+  
+  const eventData = {
     caddieId: caddie.id,
     name: caddie.name,
-    previousStatus: caddie.previousStatus,
+    number: caddie.number,
+    previousStatus: previousStatus || caddie.previousStatus,
     newStatus: caddie.status,
+    status: caddie.status,
     category,
+    listNumber,
     timestamp: Date.now(),
-  });
+  };
+  
+  // Emit to all clients for real-time updates
+  emitToAll('caddie:status_changed', eventData);
+  
+  // Also emit to specific list room
+  emitToList(listNumber, 'caddie:status_changed', eventData);
+  
+  console.log(`[WS Emitter] Status changed for caddie ${caddie.name} (${caddie.number}): ${previousStatus} -> ${caddie.status}`);
 }
 
 /**

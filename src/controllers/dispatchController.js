@@ -56,7 +56,7 @@ export const bulkDispatch = async (req, res) => {
       });
 
       // Emit status change for each caddie
-      emitCaddieStatusChanged(updatedCaddie);
+      emitCaddieStatusChanged(updatedCaddie, previousStatus);
     }
 
     const timestamp = Date.now();

@@ -575,7 +575,13 @@ export const updateCaddie = async (req, res) => {
       include: { availability: true },
     });
 
+    // Emit general update event
     emitCaddieUpdated(id, updates, caddie.category);
+    
+    // If status was updated, also emit status changed event for real-time monitors
+    if (updates.status !== undefined && updates.status !== caddie.status) {
+      emitCaddieStatusChanged(result, caddie.status);
+    }
 
     res.json({
       success: true,
@@ -713,7 +719,7 @@ export const updateCaddieStatus = async (req, res) => {
       });
     }
 
-    emitCaddieStatusChanged(updatedCaddie);
+    emitCaddieStatusChanged(updatedCaddie, previousStatus);
 
     res.json({
       success: true,
