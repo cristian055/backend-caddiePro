@@ -4,31 +4,39 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 export async function setupTestDatabase() {
-  // Clean up test data
-  await prisma.turn.deleteMany();
-  await prisma.attendance.deleteMany();
+  // Clean up test data - order matters due to foreign keys
+  await prisma.dispatchHistory.deleteMany();
+  await prisma.serviceLog.deleteMany();
+  await prisma.weeklyAssignment.deleteMany();
+  await prisma.weeklyShiftRequirement.deleteMany();
+  await prisma.weeklyShift.deleteMany();
+  await prisma.caddieAvailability.deleteMany();
   await prisma.message.deleteMany();
-  await prisma.caddieQueue.deleteMany();
   await prisma.caddie.deleteMany();
-  await prisma.listSettings.deleteMany();
-  await prisma.admin.deleteMany();
+  await prisma.listConfig.deleteMany();
+  await prisma.user.deleteMany();
 
-  // Create test admin
+  // Create test admin user
   const hashedPassword = await bcrypt.hash('test123', 10);
-  await prisma.admin.create({
+  await prisma.user.create({
     data: {
       id: 'test-admin-id',
-      password: hashedPassword,
+      email: 'admin@test.com',
+      passwordHash: hashedPassword,
+      role: 'admin',
+      location: 'Llanogrande',
     },
   });
 
-  // Create test list settings
-  for (let i = 1; i <= 3; i++) {
-    await prisma.listSettings.create({
+  // Create test list configs
+  const categories = ['Primera', 'Segunda', 'Tercera'];
+  for (let i = 0; i < categories.length; i++) {
+    await prisma.listConfig.create({
       data: {
-        listNumber: i,
-        callTime: '06:00',
-        order: 'ascendente',
+        name: `Lista ${categories[i]}`,
+        category: categories[i],
+        location: 'Llanogrande',
+        orderType: 'ASC',
         rangeStart: 1,
         rangeEnd: 20,
       },
@@ -37,11 +45,11 @@ export async function setupTestDatabase() {
 
   // Create test caddies
   const testCaddies = [
-    { name: 'Test Caddie 1', listNumber: 1, id: 'test-caddie-1' },
-    { name: 'Test Caddie 2', listNumber: 1, id: 'test-caddie-2' },
-    { name: 'Test Caddie 3', listNumber: 2, id: 'test-caddie-3' },
-    { name: 'Test Caddie 4', listNumber: 2, id: 'test-caddie-4' },
-    { name: 'Test Caddie 5', listNumber: 3, id: 'test-caddie-5' },
+    { name: 'Test Caddie 1', number: 1, category: 'Primera', id: 'test-caddie-1' },
+    { name: 'Test Caddie 2', number: 2, category: 'Primera', id: 'test-caddie-2' },
+    { name: 'Test Caddie 3', number: 1, category: 'Segunda', id: 'test-caddie-3' },
+    { name: 'Test Caddie 4', number: 2, category: 'Segunda', id: 'test-caddie-4' },
+    { name: 'Test Caddie 5', number: 1, category: 'Tercera', id: 'test-caddie-5' },
   ];
 
   for (const caddie of testCaddies) {
@@ -49,17 +57,12 @@ export async function setupTestDatabase() {
       data: {
         id: caddie.id,
         name: caddie.name,
-        listNumber: caddie.listNumber,
-        status: 'Disponible',
-      },
-    });
-
-    await prisma.caddieQueue.create({
-      data: {
-        caddieId: caddie.id,
-        listNumber: caddie.listNumber,
-        position: caddie.listNumber,
-        available: true,
+        number: caddie.number,
+        category: caddie.category,
+        status: 'AVAILABLE',
+        location: 'Llanogrande',
+        role: 'Golf',
+        weekendPriority: caddie.number,
       },
     });
   }
@@ -68,18 +71,24 @@ export async function setupTestDatabase() {
 }
 
 export async function cleanupTestDatabase() {
-  await prisma.turn.deleteMany();
-  await prisma.attendance.deleteMany();
+  await prisma.dispatchHistory.deleteMany();
+  await prisma.serviceLog.deleteMany();
+  await prisma.weeklyAssignment.deleteMany();
+  await prisma.weeklyShiftRequirement.deleteMany();
+  await prisma.weeklyShift.deleteMany();
+  await prisma.caddieAvailability.deleteMany();
   await prisma.message.deleteMany();
-  await prisma.caddieQueue.deleteMany();
   await prisma.caddie.deleteMany();
-  await prisma.listSettings.deleteMany();
-  await prisma.admin.deleteMany();
+  await prisma.listConfig.deleteMany();
+  await prisma.user.deleteMany();
 }
 
 export async function getAuthToken(app) {
-  const response = await app.post('/api/auth/login').send({ password: 'test123' });
-  return response.body.token;
+  const response = await app.post('/api/auth/login').send({ 
+    email: 'admin@test.com',
+    password: 'test123' 
+  });
+  return response.body.data?.token || response.body.token;
 }
 
 export { prisma };

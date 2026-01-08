@@ -1,19 +1,305 @@
 import prisma from '../config/database.js';
 import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged } from '../utils/websocketEmitter.js';
 
+// Valid status values
+const VALID_STATUSES = ['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'LATE', 'ABSENT', 'ON_LEAVE'];
+const VALID_CATEGORIES = ['Primera', 'Segunda', 'Tercera'];
+const VALID_LOCATIONS = ['Llanogrande', 'Medellín'];
+const VALID_ROLES = ['Golf', 'Tennis', 'Hybrid'];
+
+// Map category to number for sorting/filtering
+const CATEGORY_MAP = {
+  'Primera': 1,
+  'Segunda': 2,
+  'Tercera': 3,
+};
+
+/**
+ * GET /caddies
+ * Get all caddies with optional filtering
+ */
 export const getAllCaddies = async (req, res) => {
   try {
+    const { searchTerm, category, activeStatus, location, role, includeInactive } = req.query;
+
+    const where = {};
+
+    // Filter by active status
+    if (activeStatus === 'Active') {
+      where.isActive = true;
+    } else if (activeStatus === 'Inactive') {
+      where.isActive = false;
+    } else if (!includeInactive || includeInactive === 'false') {
+      where.isActive = true;
+    }
+
+    // Filter by category
+    if (category && category !== 'All') {
+      where.category = category;
+    }
+
+    // Filter by location
+    if (location) {
+      where.location = location;
+    }
+
+    // Filter by role
+    if (role) {
+      where.role = role;
+    }
+
+    // Search by name or number
+    if (searchTerm) {
+      const searchNumber = parseInt(searchTerm);
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        ...(isNaN(searchNumber) ? [] : [{ number: searchNumber }]),
+      ];
+    }
+
     const caddies = await prisma.caddie.findMany({
-      orderBy: [{ listNumber: 'asc' }, { name: 'asc' }],
+      where,
+      include: {
+        availability: true,
+      },
+      orderBy: [{ number: 'asc' }],
     });
 
-    res.json(caddies);
+    // Format response according to API spec
+    const formattedCaddies = caddies.map(caddie => ({
+      id: caddie.id,
+      name: caddie.name,
+      number: caddie.number,
+      status: caddie.status,
+      isActive: caddie.isActive,
+      category: caddie.category,
+      location: caddie.location,
+      role: caddie.role,
+      weekendPriority: caddie.weekendPriority,
+      isSkippedNextWeek: caddie.isSkippedNextWeek,
+      historyCount: caddie.historyCount,
+      absencesCount: caddie.absencesCount,
+      lateCount: caddie.lateCount,
+      leaveCount: caddie.leaveCount,
+      lastActionTime: caddie.lastActionTime,
+      availability: caddie.availability.map(a => ({
+        day: a.day,
+        isAvailable: a.isAvailable,
+        range: a.rangeType ? {
+          type: a.rangeType,
+          time: a.rangeTime,
+          endTime: a.rangeEndTime,
+        } : null,
+      })),
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        caddies: formattedCaddies,
+        total: formattedCaddies.length,
+      },
+    });
   } catch (error) {
     console.error('Get caddies error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
+/**
+ * GET /caddies/statistics
+ * Get caddie statistics
+ */
+export const getCaddieStatistics = async (req, res) => {
+  try {
+    const [total, active, byStatus, byCategory] = await Promise.all([
+      prisma.caddie.count(),
+      prisma.caddie.count({ where: { isActive: true } }),
+      prisma.caddie.groupBy({
+        by: ['status'],
+        _count: { status: true },
+      }),
+      prisma.caddie.groupBy({
+        by: ['category'],
+        _count: { category: true },
+        where: { isActive: true },
+      }),
+    ]);
+
+    const statusCounts = {};
+    VALID_STATUSES.forEach(s => statusCounts[s] = 0);
+    byStatus.forEach(s => statusCounts[s.status] = s._count.status);
+
+    const categoryCounts = {};
+    VALID_CATEGORIES.forEach(c => categoryCounts[c] = 0);
+    byCategory.forEach(c => {
+      if (c.category) categoryCounts[c.category] = c._count.category;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        active,
+        inactive: total - active,
+        byStatus: statusCounts,
+        byCategory: categoryCounts,
+      },
+    });
+  } catch (error) {
+    console.error('Get statistics error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /caddies/queue
+ * Get caddies for queue (active and available/late)
+ */
+export const getCaddiesQueue = async (req, res) => {
+  try {
+    const caddies = await prisma.caddie.findMany({
+      where: {
+        isActive: true,
+        status: { in: ['AVAILABLE', 'LATE'] },
+      },
+      orderBy: [{ weekendPriority: 'asc' }, { number: 'asc' }],
+    });
+
+    res.json({
+      success: true,
+      data: {
+        queueCaddies: caddies.map(c => ({
+          id: c.id,
+          name: c.name,
+          number: c.number,
+          status: c.status,
+          category: c.category,
+          weekendPriority: c.weekendPriority,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Get queue error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /caddies/returns
+ * Get caddies that need to return (IN_PREP or IN_FIELD status)
+ */
+export const getCaddiesReturns = async (req, res) => {
+  try {
+    const caddies = await prisma.caddie.findMany({
+      where: {
+        isActive: true,
+        status: { in: ['IN_PREP', 'IN_FIELD'] },
+      },
+      orderBy: [{ lastActionTime: 'asc' }],
+    });
+
+    res.json({
+      success: true,
+      data: {
+        returnCaddies: caddies.map(c => ({
+          id: c.id,
+          name: c.name,
+          number: c.number,
+          status: c.status,
+          category: c.category,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Get returns error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /caddies/availability/:day
+ * Get caddies available on a specific day
+ */
+export const getCaddiesByAvailability = async (req, res) => {
+  try {
+    const { day } = req.params;
+    const { includeInactive } = req.query;
+
+    const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    if (!validDays.includes(day)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid day' },
+      });
+    }
+
+    const where = {
+      availability: {
+        some: {
+          day,
+          isAvailable: true,
+        },
+      },
+    };
+
+    if (!includeInactive || includeInactive === 'false') {
+      where.isActive = true;
+    }
+
+    const caddies = await prisma.caddie.findMany({
+      where,
+      include: { availability: true },
+      orderBy: [{ weekendPriority: 'asc' }, { number: 'asc' }],
+    });
+
+    res.json({
+      success: true,
+      data: {
+        day,
+        availableCaddies: caddies.map(c => ({
+          id: c.id,
+          name: c.name,
+          number: c.number,
+          category: c.category,
+          weekendPriority: c.weekendPriority,
+          availability: c.availability.map(a => ({
+            day: a.day,
+            isAvailable: a.isAvailable,
+            range: a.rangeType ? {
+              type: a.rangeType,
+              time: a.rangeTime,
+              endTime: a.rangeEndTime,
+            } : null,
+          })),
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Get availability error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+/**
+ * GET /caddies/:id
+ * Get a single caddie by ID
+ */
 export const getCaddieById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -21,183 +307,464 @@ export const getCaddieById = async (req, res) => {
     const caddie = await prisma.caddie.findUnique({
       where: { id },
       include: {
-        turns: true,
-        attendance: true,
+        availability: true,
+        dispatchHistory: {
+          orderBy: { dispatchedAt: 'desc' },
+          take: 10,
+        },
+        serviceLogs: {
+          orderBy: { serviceDate: 'desc' },
+          take: 30,
+        },
       },
     });
 
     if (!caddie) {
-      return res.status(404).json({ error: 'Caddie not found' });
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Caddie not found' },
+      });
     }
 
-    res.json(caddie);
+    res.json({
+      success: true,
+      data: {
+        id: caddie.id,
+        name: caddie.name,
+        number: caddie.number,
+        status: caddie.status,
+        isActive: caddie.isActive,
+        category: caddie.category,
+        location: caddie.location,
+        role: caddie.role,
+        weekendPriority: caddie.weekendPriority,
+        isSkippedNextWeek: caddie.isSkippedNextWeek,
+        historyCount: caddie.historyCount,
+        absencesCount: caddie.absencesCount,
+        lateCount: caddie.lateCount,
+        leaveCount: caddie.leaveCount,
+        lastActionTime: caddie.lastActionTime,
+        availability: caddie.availability.map(a => ({
+          day: a.day,
+          isAvailable: a.isAvailable,
+          range: a.rangeType ? {
+            type: a.rangeType,
+            time: a.rangeTime,
+            endTime: a.rangeEndTime,
+          } : null,
+        })),
+      },
+    });
   } catch (error) {
     console.error('Get caddie error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getCaddiesByList = async (req, res) => {
-  try {
-    const { listNumber } = req.params;
-
-    const caddies = await prisma.caddie.findMany({
-      where: { listNumber: parseInt(listNumber) },
-      orderBy: [{ listNumber: 'asc' }, { name: 'asc' }],
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
     });
-
-    res.json(caddies);
-  } catch (error) {
-    console.error('Get caddies by list error:', error);
-    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
+/**
+ * POST /caddies
+ * Create a new caddie
+ */
 export const createCaddie = async (req, res) => {
   try {
-    const { name, listNumber, phoneNumber, status } = req.body;
+    const { name, number, category, location, role, availability, weekendPriority } = req.body;
 
-    if (!name || !listNumber) {
-      return res.status(400).json({ error: 'Name and listNumber are required' });
+    // Validation
+    if (!name || name.length < 2 || name.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Name must be between 2 and 100 characters' },
+      });
     }
 
-    if (![1, 2, 3].includes(parseInt(listNumber))) {
-      return res.status(400).json({ error: 'ListNumber must be 1, 2, or 3' });
+    if (!number || number < 1 || number > 999) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Number must be between 1 and 999' },
+      });
     }
 
+    if (!category || !VALID_CATEGORIES.includes(category)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Category must be one of: ${VALID_CATEGORIES.join(', ')}` },
+      });
+    }
+
+    if (!location || !VALID_LOCATIONS.includes(location)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Location must be one of: ${VALID_LOCATIONS.join(', ')}` },
+      });
+    }
+
+    if (!role || !VALID_ROLES.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Role must be one of: ${VALID_ROLES.join(', ')}` },
+      });
+    }
+
+    // Check for duplicate number within same category
+    const existing = await prisma.caddie.findFirst({ 
+      where: { number, category } 
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'DUPLICATE_ENTRY', message: 'A caddie with this number already exists in this category' },
+      });
+    }
+
+    // Create caddie
     const caddie = await prisma.caddie.create({
       data: {
         name,
-        listNumber: parseInt(listNumber),
-        phoneNumber,
-        status: status || 'Disponible',
+        number,
+        category,
+        location,
+        role,
+        weekendPriority: weekendPriority || number,
+        status: 'AVAILABLE',
+        isActive: true,
       },
     });
 
-    // Create queue entry for the caddie
-    await prisma.caddieQueue.create({
+    // Create availability records if provided
+    if (availability && Array.isArray(availability)) {
+      for (const avail of availability) {
+        await prisma.caddieAvailability.create({
+          data: {
+            caddieId: caddie.id,
+            day: avail.day,
+            isAvailable: avail.isAvailable !== false,
+            rangeType: avail.range?.type || null,
+            rangeTime: avail.range?.time || null,
+            rangeEndTime: avail.range?.endTime || null,
+          },
+        });
+      }
+    }
+
+    // Get caddie with availability
+    const result = await prisma.caddie.findUnique({
+      where: { id: caddie.id },
+      include: { availability: true },
+    });
+
+    emitCaddieAdded(result);
+
+    res.status(201).json({
+      success: true,
       data: {
-        caddieId: caddie.id,
-        listNumber: caddie.listNumber,
-        position: await getNextPosition(caddie.listNumber),
+        id: result.id,
+        name: result.name,
+        number: result.number,
+        status: result.status,
+        isActive: result.isActive,
+        category: result.category,
+        location: result.location,
+        role: result.role,
+        weekendPriority: result.weekendPriority,
+        availability: result.availability.map(a => ({
+          day: a.day,
+          isAvailable: a.isAvailable,
+          range: a.rangeType ? {
+            type: a.rangeType,
+            time: a.rangeTime,
+            endTime: a.rangeEndTime,
+          } : null,
+        })),
       },
     });
-
-    // Emit WebSocket event for real-time update
-    emitCaddieAdded(caddie);
-
-    res.status(201).json(caddie);
   } catch (error) {
     console.error('Create caddie error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
+/**
+ * PUT /caddies/:id
+ * Update a caddie
+ */
 export const updateCaddie = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, listNumber, phoneNumber, status } = req.body;
+    const { updates } = req.body;
 
-    if (listNumber && ![1, 2, 3].includes(parseInt(listNumber))) {
-      return res.status(400).json({ error: 'ListNumber must be 1, 2, or 3' });
+    if (!updates) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Updates object is required' },
+      });
     }
 
-    // Get current caddie to determine old list number
-    const oldCaddie = await prisma.caddie.findUnique({ where: { id } });
-    if (!oldCaddie) {
-      return res.status(404).json({ error: 'Caddie not found' });
+    const caddie = await prisma.caddie.findUnique({ where: { id } });
+    if (!caddie) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Caddie not found' },
+      });
     }
 
-    const updates = {};
-    if (name) updates.name = name;
-    if (listNumber) updates.listNumber = parseInt(listNumber);
-    if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber;
-    if (status) updates.status = status;
+    const data = {};
 
-    const caddie = await prisma.caddie.update({
+    if (updates.name !== undefined) data.name = updates.name;
+    if (updates.number !== undefined) {
+      // Check for duplicate number
+      const existing = await prisma.caddie.findFirst({
+        where: { number: updates.number, NOT: { id } },
+      });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'DUPLICATE_ENTRY', message: 'A caddie with this number already exists' },
+        });
+      }
+      data.number = updates.number;
+    }
+    if (updates.category !== undefined) data.category = updates.category;
+    if (updates.location !== undefined) data.location = updates.location;
+    if (updates.role !== undefined) data.role = updates.role;
+    if (updates.weekendPriority !== undefined) data.weekendPriority = updates.weekendPriority;
+    if (updates.isActive !== undefined) data.isActive = updates.isActive;
+    if (updates.status !== undefined) {
+      if (!VALID_STATUSES.includes(updates.status)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Status must be one of: ${VALID_STATUSES.join(', ')}` },
+        });
+      }
+      data.status = updates.status;
+      data.lastActionTime = new Date();
+    }
+
+    const updatedCaddie = await prisma.caddie.update({
       where: { id },
-      data: updates,
+      data,
     });
 
-    // Update queue if list changed
-    if (listNumber && parseInt(listNumber) !== oldCaddie.listNumber) {
-      await prisma.caddieQueue.update({
-        where: { caddieId: id },
-        data: {
-          listNumber: parseInt(listNumber),
-          position: await getNextPosition(parseInt(listNumber)),
-        },
-      });
-
-      // Emit to both old and new list rooms
-      emitCaddieUpdated(id, updates, oldCaddie.listNumber);
-      emitCaddieUpdated(id, updates, parseInt(listNumber));
-    } else {
-      // Emit to current list room only
-      emitCaddieUpdated(id, updates, oldCaddie.listNumber);
+    // Update availability if provided
+    if (updates.availability && Array.isArray(updates.availability)) {
+      // Delete existing availability
+      await prisma.caddieAvailability.deleteMany({ where: { caddieId: id } });
+      
+      // Create new availability records
+      for (const avail of updates.availability) {
+        await prisma.caddieAvailability.create({
+          data: {
+            caddieId: id,
+            day: avail.day,
+            isAvailable: avail.isAvailable !== false,
+            rangeType: avail.range?.type || null,
+            rangeTime: avail.range?.time || null,
+            rangeEndTime: avail.range?.endTime || null,
+          },
+        });
+      }
     }
 
-    res.json(caddie);
+    const result = await prisma.caddie.findUnique({
+      where: { id },
+      include: { availability: true },
+    });
+
+    emitCaddieUpdated(id, updates, caddie.category);
+
+    res.json({
+      success: true,
+      data: {
+        id: result.id,
+        name: result.name,
+        number: result.number,
+        status: result.status,
+        isActive: result.isActive,
+        category: result.category,
+        location: result.location,
+        role: result.role,
+        weekendPriority: result.weekendPriority,
+        availability: result.availability.map(a => ({
+          day: a.day,
+          isAvailable: a.isAvailable,
+          range: a.rangeType ? {
+            type: a.rangeType,
+            time: a.rangeTime,
+            endTime: a.rangeEndTime,
+          } : null,
+        })),
+      },
+    });
   } catch (error) {
     console.error('Update caddie error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
+/**
+ * DELETE /caddies/:id
+ * Soft delete a caddie (set isActive = false)
+ */
 export const deleteCaddie = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Get caddie to know list number before deletion
     const caddie = await prisma.caddie.findUnique({ where: { id } });
     if (!caddie) {
-      return res.status(404).json({ error: 'Caddie not found' });
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Caddie not found' },
+      });
     }
 
-    await prisma.caddie.delete({
+    await prisma.caddie.update({
       where: { id },
+      data: { isActive: false },
     });
 
-    // Emit WebSocket event for real-time update
-    emitCaddieDeleted(id, caddie.listNumber);
+    emitCaddieDeleted(id, caddie.category);
 
-    res.status(204).send();
+    res.json({
+      success: true,
+      message: 'Caddie deactivated successfully',
+    });
   } catch (error) {
     console.error('Delete caddie error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
+/**
+ * PATCH /caddies/:id/status
+ * Update caddie status
+ */
 export const updateCaddieStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['Disponible', 'En campo', 'Ausente'];
-    if (!status || !validStatuses.includes(status)) {
-      return res.status(400).json({ error: `Status must be one of: ${validStatuses.join(', ')}` });
+    if (!status || !VALID_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Status must be one of: ${VALID_STATUSES.join(', ')}` },
+      });
     }
 
-    const caddie = await prisma.caddie.update({
+    const caddie = await prisma.caddie.findUnique({ where: { id } });
+    if (!caddie) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Caddie not found' },
+      });
+    }
+
+    const previousStatus = caddie.status;
+
+    // Update caddie status
+    const updatedCaddie = await prisma.caddie.update({
       where: { id },
-      data: { status },
+      data: {
+        status,
+        lastActionTime: new Date(),
+      },
     });
 
-    // Emit WebSocket event for real-time status update
-    emitCaddieStatusChanged(caddie);
+    // Log to dispatch history
+    await prisma.dispatchHistory.create({
+      data: {
+        caddieId: id,
+        previousStatus,
+        newStatus: status,
+        location: caddie.location,
+      },
+    });
 
-    res.json(caddie);
+    // Update counts based on status
+    if (status === 'ABSENT') {
+      await prisma.caddie.update({
+        where: { id },
+        data: { absencesCount: { increment: 1 } },
+      });
+    } else if (status === 'LATE') {
+      await prisma.caddie.update({
+        where: { id },
+        data: { lateCount: { increment: 1 } },
+      });
+    } else if (status === 'ON_LEAVE') {
+      await prisma.caddie.update({
+        where: { id },
+        data: { leaveCount: { increment: 1 } },
+      });
+    } else if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
+      await prisma.caddie.update({
+        where: { id },
+        data: { historyCount: { increment: 1 } },
+      });
+    }
+
+    emitCaddieStatusChanged(updatedCaddie);
+
+    res.json({
+      success: true,
+      data: {
+        id: updatedCaddie.id,
+        name: updatedCaddie.name,
+        number: updatedCaddie.number,
+        status: updatedCaddie.status,
+        previousStatus,
+      },
+    });
   } catch (error) {
     console.error('Update caddie status error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
-// Helper function to get next position in queue
-async function getNextPosition(listNumber) {
-  const lastQueue = await prisma.caddieQueue.findFirst({
-    where: { listNumber },
-    orderBy: { position: 'desc' },
-  });
-  return lastQueue ? lastQueue.position + 1 : 1;
-}
+// ============================================
+// Legacy support functions (for backward compatibility)
+// ============================================
+
+export const getCaddiesByList = async (req, res) => {
+  try {
+    const { listNumber } = req.params;
+    const categoryMap = { '1': 'Primera', '2': 'Segunda', '3': 'Tercera' };
+    const category = categoryMap[listNumber];
+
+    if (!category) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid list number' },
+      });
+    }
+
+    const caddies = await prisma.caddie.findMany({
+      where: { category, isActive: true },
+      orderBy: [{ number: 'asc' }],
+    });
+
+    res.json({
+      success: true,
+      data: { caddies },
+    });
+  } catch (error) {
+    console.error('Get caddies by list error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};

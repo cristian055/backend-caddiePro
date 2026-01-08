@@ -8,11 +8,11 @@ const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient();
 
-// Map list names to numbers
-const LIST_MAP = {
-  'Primera': 1,
-  'Segunda': 2,
-  'Tercera': 3,
+// Map category names to values
+const CATEGORY_MAP = {
+  'Primera': 'Primera',
+  'Segunda': 'Segunda',
+  'Tercera': 'Tercera',
 };
 
 async function importCaddies() {
@@ -38,6 +38,24 @@ async function importCaddies() {
   let errorCount = 0;
   const errors = [];
 
+  // Track the next number for each category
+  const categoryNumbers = {
+    'Primera': 1,
+    'Segunda': 1,
+    'Tercera': 1,
+  };
+
+  // Count existing caddies per category to set correct numbers
+  for (const category of Object.keys(categoryNumbers)) {
+    const maxCaddie = await prisma.caddie.findFirst({
+      where: { category },
+      orderBy: { number: 'desc' },
+    });
+    if (maxCaddie) {
+      categoryNumbers[category] = maxCaddie.number + 1;
+    }
+  }
+
   for (let i = 0; i < dataLines.length; i++) {
     const line = dataLines[i].trim();
     
@@ -52,53 +70,48 @@ async function importCaddies() {
     }
 
     const nombre = match[1];
-    const listaTexto = match[2];
-    const listNumber = LIST_MAP[listaTexto];
+    const categoryText = match[2];
+    const category = CATEGORY_MAP[categoryText];
 
-    if (!listNumber) {
-      console.log(`⚠️  Invalid list "${listaTexto}" for: ${nombre}`);
+    if (!category) {
+      console.log(`⚠️  Invalid category "${categoryText}" for: ${nombre}`);
       continue;
     }
 
     try {
-      // Check if caddie already exists
+      // Check if caddie already exists by name and category
       const existing = await prisma.caddie.findFirst({
-        where: { name: nombre, listNumber },
+        where: { name: nombre, category },
       });
 
       if (existing) {
-        console.log(`⏭️  Skipping (already exists): ${nombre} (Lista ${listNumber})`);
+        console.log(`⏭️  Skipping (already exists): ${nombre} (${category})`);
         continue;
       }
 
-      // Create caddie
+      // Determine the number for this caddie
+      const number = categoryNumbers[category]++;
+
+      // Create caddie with new schema
       const caddie = await prisma.caddie.create({
         data: {
           name: nombre,
-          listNumber,
-          status: 'Disponible',
+          number,
+          category,
+          status: 'AVAILABLE',
+          isActive: true,
+          location: 'Llanogrande',
+          role: 'Golf',
+          weekendPriority: number,
+          isSkippedNextWeek: false,
+          historyCount: 0,
+          absencesCount: 0,
+          lateCount: 0,
+          leaveCount: 0,
         },
       });
 
-      // Get next queue position for this list
-      const lastQueue = await prisma.caddieQueue.findFirst({
-        where: { listNumber },
-        orderBy: { position: 'desc' },
-      });
-
-      const position = lastQueue ? lastQueue.position + 1 : 1;
-
-      // Create queue entry
-      await prisma.caddieQueue.create({
-        data: {
-          caddieId: caddie.id,
-          listNumber,
-          position,
-          available: true,
-        },
-      });
-
-      console.log(`✅ Created: ${nombre} (Lista ${listNumber}, Posición ${position})`);
+      console.log(`✅ Created: ${nombre} (${category}, #${number})`);
       successCount++;
 
     } catch (error) {
@@ -117,6 +130,37 @@ async function importCaddies() {
   if (errors.length > 0) {
     console.log('\n⚠️  Errors:');
     errors.forEach(e => console.log(`   - ${e.nombre}: ${e.error}`));
+  }
+
+  // Create default list configurations if they don't exist
+  console.log('\n📋 Checking list configurations...');
+  
+  const listDefaults = [
+    { category: 'Primera', name: 'Lista Primera', rangeStart: 1, rangeEnd: 60 },
+    { category: 'Segunda', name: 'Lista Segunda', rangeStart: 1, rangeEnd: 30 },
+    { category: 'Tercera', name: 'Lista Tercera', rangeStart: 1, rangeEnd: 25 },
+  ];
+
+  for (const listDef of listDefaults) {
+    const existing = await prisma.listConfig.findFirst({
+      where: { category: listDef.category },
+    });
+
+    if (!existing) {
+      await prisma.listConfig.create({
+        data: {
+          name: listDef.name,
+          category: listDef.category,
+          location: 'Llanogrande',
+          rangeStart: listDef.rangeStart,
+          rangeEnd: listDef.rangeEnd,
+          orderType: 'ASC',
+        },
+      });
+      console.log(`   ✅ Created list config: ${listDef.name}`);
+    } else {
+      console.log(`   ⏭️  List config already exists: ${listDef.category}`);
+    }
   }
 
   console.log('\n🎉 Import completed!');

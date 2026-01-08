@@ -2,135 +2,229 @@ import prisma from '../config/database.js';
 import { createObjectCsvWriter } from 'csv-writer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-export const getDailyReport = async (req, res) => {
+/**
+ * GET /reports/statistics
+ * Get daily statistics
+ */
+export const getStatistics = async (req, res) => {
   try {
-    const { date } = req.params;
+    const { date } = req.query;
+    const targetDate = date ? new Date(date) : new Date();
+    const dateStr = targetDate.toISOString().split('T')[0];
 
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
-
-    const attendance = await prisma.attendance.findMany({
+    // Get aggregated stats from service logs for the date
+    const serviceLogs = await prisma.serviceLog.findMany({
       where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
+        serviceDate: new Date(dateStr),
       },
-      orderBy: { listNumber: 'asc' },
     });
 
-    // Calculate summary
-    const summary = {
-      totalCaddies: attendance.length,
-      present: attendance.filter((a) => a.status === 'Presente').length,
-      late: attendance.filter((a) => a.status === 'Llegó tarde').length,
-      absent: attendance.filter((a) => a.status === 'No vino').length,
-      permission: attendance.filter((a) => a.status === 'Permiso').length,
-      totalTurns: attendance.reduce((sum, a) => sum + a.turnsCount, 0),
-    };
+    const stats = serviceLogs.reduce(
+      (acc, log) => ({
+        totalServices: acc.totalServices + log.servicesCount,
+        totalAbsences: acc.totalAbsences + log.absencesCount,
+        totalLeaves: acc.totalLeaves + log.leavesCount,
+        totalLates: acc.totalLates + log.latesCount,
+      }),
+      { totalServices: 0, totalAbsences: 0, totalLeaves: 0, totalLates: 0 }
+    );
 
-    res.json({ date, records: attendance, summary });
+    // If no service logs, get from caddie counts
+    if (serviceLogs.length === 0) {
+      const caddies = await prisma.caddie.findMany({
+        where: { isActive: true },
+        select: {
+          historyCount: true,
+          absencesCount: true,
+          leaveCount: true,
+          lateCount: true,
+        },
+      });
+
+      stats.totalServices = caddies.reduce((sum, c) => sum + c.historyCount, 0);
+      stats.totalAbsences = caddies.reduce((sum, c) => sum + c.absencesCount, 0);
+      stats.totalLeaves = caddies.reduce((sum, c) => sum + c.leaveCount, 0);
+      stats.totalLates = caddies.reduce((sum, c) => sum + c.lateCount, 0);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        date: dateStr,
+        ...stats,
+      },
+    });
   } catch (error) {
-    console.error('Get daily report error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Get statistics error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
-export const getRangeReport = async (req, res) => {
+/**
+ * GET /reports/incidents
+ * Get caddies with incidents (absences, leaves, lates)
+ */
+export const getIncidents = async (req, res) => {
   try {
-    const { startDate, endDate } = req.params;
+    const { limit } = req.query;
+    const take = parseInt(limit) || 10;
 
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-
-    const attendance = await prisma.attendance.findMany({
+    const caddies = await prisma.caddie.findMany({
       where: {
-        date: {
-          gte: start,
-          lte: end,
-        },
+        isActive: true,
+        OR: [
+          { absencesCount: { gt: 0 } },
+          { leaveCount: { gt: 0 } },
+          { lateCount: { gt: 0 } },
+        ],
       },
-      orderBy: { date: 'asc' },
+      orderBy: [
+        { absencesCount: 'desc' },
+        { lateCount: 'desc' },
+        { leaveCount: 'desc' },
+      ],
+      take,
     });
 
-    res.json({ startDate, endDate, records: attendance });
+    const incidents = caddies.map(c => ({
+      id: c.id,
+      number: c.number,
+      name: c.name,
+      absencesCount: c.absencesCount,
+      leaveCount: c.leaveCount,
+      lateCount: c.lateCount,
+      total: c.absencesCount + c.leaveCount + c.lateCount,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        incidents,
+      },
+    });
   } catch (error) {
-    console.error('Get range report error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Get incidents error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
 
-export const downloadCsvReport = async (req, res) => {
+/**
+ * GET /reports/csv
+ * Download daily report as CSV
+ */
+export const downloadCsv = async (req, res) => {
   try {
-    const { date } = req.params;
+    const { date } = req.query;
+    const targetDate = date || new Date().toISOString().split('T')[0];
 
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
-
-    const attendance = await prisma.attendance.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-      include: {
-        caddie: {
-          select: {
-            listNumber: true,
-          },
-        },
-      },
-      orderBy: { listNumber: 'asc' },
+    const caddies = await prisma.caddie.findMany({
+      where: { isActive: true },
+      orderBy: [{ number: 'asc' }],
     });
 
-    const filename = `report_${date}.csv`;
-    const filepath = join(__dirname, '../../tmp', filename);
+    const filename = `report_${targetDate}.csv`;
+    const tmpDir = join(__dirname, '../../tmp');
+    
+    // Ensure tmp directory exists
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+    
+    const filepath = join(tmpDir, filename);
 
     const csvWriter = createObjectCsvWriter({
       path: filepath,
       header: [
-        { id: 'date', title: 'Fecha' },
-        { id: 'name', title: 'Nombre Caddie' },
-        { id: 'listNumber', title: 'Lista' },
-        { id: 'status', title: 'Estado' },
-        { id: 'callTime', title: 'Hora Llamado' },
-        { id: 'arrivalTime', title: 'Hora Llegada' },
-        { id: 'turnsCount', title: 'Turnos Realizados' },
-        { id: 'endTime', title: 'Hora Salida' },
+        { id: 'number', title: 'Number' },
+        { id: 'name', title: 'Name' },
+        { id: 'category', title: 'Category' },
+        { id: 'status', title: 'Current Status' },
+        { id: 'historyCount', title: 'Today Services' },
+        { id: 'absencesCount', title: 'Absences' },
+        { id: 'leaveCount', title: 'Leaves' },
+        { id: 'lateCount', title: 'Delays' },
       ],
     });
 
-    const records = attendance.map((a) => ({
-      date: a.date.toISOString().split('T')[0],
-      name: a.caddieName,
-      listNumber: a.listNumber,
-      status: a.status,
-      callTime: a.callTime ? a.callTime.toISOString() : '',
-      arrivalTime: a.arrivalTime ? a.arrivalTime.toISOString() : '',
-      turnsCount: a.turnsCount,
-      endTime: a.endTime ? a.endTime.toISOString() : '',
+    const records = caddies.map(c => ({
+      number: c.number,
+      name: c.name,
+      category: c.category || '',
+      status: c.status,
+      historyCount: c.historyCount,
+      absencesCount: c.absencesCount,
+      leaveCount: c.leaveCount,
+      lateCount: c.lateCount,
     }));
 
     await csvWriter.writeRecords(records);
 
     res.download(filepath, filename, (err) => {
       if (err) {
-        console.error('CSV download error:', err);
+        console.error('Download error:', err);
       }
+      // Clean up file after download
+      fs.unlink(filepath, () => {});
     });
   } catch (error) {
-    console.error('Download CSV report error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Download CSV error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   }
 };
+
+// ============================================
+// Legacy support functions
+// ============================================
+
+export const getDailyReport = async (req, res) => {
+  const { date } = req.params;
+  req.query.date = date;
+  return getStatistics(req, res);
+};
+
+export const getRangeReport = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.params;
+
+    const serviceLogs = await prisma.serviceLog.findMany({
+      where: {
+        serviceDate: {
+          gte: new Date(startDate),
+          lte: new Date(endDate),
+        },
+      },
+      orderBy: { serviceDate: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        startDate,
+        endDate,
+        records: serviceLogs,
+      },
+    });
+  } catch (error) {
+    console.error('Get range report error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
+  }
+};
+
+export const downloadCsvReport = downloadCsv;

@@ -15,30 +15,52 @@ describe('Authentication Endpoints', () => {
   });
 
   describe('POST /api/auth/login', () => {
-    test('should login with correct password', async () => {
+    test('should login with correct email and password', async () => {
       const response = await request(app)
         .post('/api/auth/login')
-        .send({ password: 'test123' });
+        .send({ email: 'admin@test.com', password: 'test123' });
 
       expect(response.status).toBe(200);
-      expect(response.body.token).toBeDefined();
-      expect(response.body.admin).toBe(true);
-      expect(typeof response.body.token).toBe('string');
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.token).toBeDefined();
+      expect(response.body.data.user).toBeDefined();
+      expect(response.body.data.user.email).toBe('admin@test.com');
+      expect(typeof response.body.data.token).toBe('string');
 
-      authToken = response.body.token;
+      authToken = response.body.data.token;
     });
 
     test('should fail with incorrect password', async () => {
       const response = await request(app)
         .post('/api/auth/login')
-        .send({ password: 'wrongpassword' });
+        .send({ email: 'admin@test.com', password: 'wrongpassword' });
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBeDefined();
     });
 
+    test('should fail with non-existent email', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'nonexistent@test.com', password: 'test123' });
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBeDefined();
+    });
+
+    test('should fail with missing email', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ password: 'test123' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBeDefined();
+    });
+
     test('should fail with missing password', async () => {
-      const response = await request(app).post('/api/auth/login').send({});
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'admin@test.com' });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
@@ -76,9 +98,10 @@ describe('Authentication Endpoints', () => {
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.valid).toBe(true);
-      expect(response.body.user).toBeDefined();
-      expect(response.body.user.adminId).toBeDefined();
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.valid).toBe(true);
+      expect(response.body.data.user).toBeDefined();
+      expect(response.body.data.user.userId).toBeDefined();
     });
 
     test('should fail without token', async () => {

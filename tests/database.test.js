@@ -25,9 +25,9 @@ describe('Database Connection Tests', () => {
   });
 
   test('should be able to query database', async () => {
-    const adminCount = await prisma.admin.count();
-    expect(typeof adminCount).toBe('number');
-    expect(adminCount).toBeGreaterThanOrEqual(0);
+    const userCount = await prisma.user.count();
+    expect(typeof userCount).toBe('number');
+    expect(userCount).toBeGreaterThanOrEqual(0);
   });
 
   test('should have all required tables', async () => {
@@ -40,13 +40,15 @@ describe('Database Connection Tests', () => {
     const tableNames = tables.map((t) => t.table_name);
 
     const requiredTables = [
-      'Caddie',
-      'Turn',
-      'Attendance',
-      'ListSettings',
-      'Message',
-      'CaddieQueue',
-      'Admin',
+      'caddies',
+      'users',
+      'list_configs',
+      'messages',
+      'caddie_availability',
+      'dispatch_history',
+      'service_logs',
+      'weekly_shifts',
+      'weekly_assignments',
     ];
 
     requiredTables.forEach((table) => {
@@ -59,7 +61,7 @@ describe('Database Connection Tests', () => {
     const message = await prisma.message.create({
       data: {
         content: 'Test message',
-        targetList: null,
+        targetCategory: null,
       },
     });
 
@@ -94,23 +96,17 @@ describe('Database Connection Tests', () => {
       const caddie = await tx.caddie.create({
         data: {
           name: 'Transaction Test Caddie',
-          listNumber: 1,
-          status: 'Disponible',
+          number: 999,
+          category: 'Primera',
+          status: 'AVAILABLE',
+          location: 'Llanogrande',
+          role: 'Golf',
+          weekendPriority: 999,
         },
       });
 
       expect(caddie).toBeDefined();
       expect(caddie.id).toBeDefined();
-
-      // Create queue entry
-      await tx.caddieQueue.create({
-        data: {
-          caddieId: caddie.id,
-          listNumber: 1,
-          position: 999,
-          available: true,
-        },
-      });
 
       // Rollback the transaction
       throw new Error('Rollback test');

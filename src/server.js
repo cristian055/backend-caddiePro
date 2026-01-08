@@ -8,9 +8,12 @@ import authRoutes from './routes/auth.js';
 import caddieRoutes from './routes/caddie.js';
 import turnRoutes from './routes/turn.js';
 import attendanceRoutes from './routes/attendance.js';
-import listSettingsRoutes from './routes/listSettings.js';
+import listsRoutes from './routes/lists.js';
 import reportsRoutes from './routes/reports.js';
 import messagesRoutes from './routes/messages.js';
+import dispatchRoutes from './routes/dispatch.js';
+import scheduleRoutes from './routes/schedule.js';
+import publicRoutes from './routes/public.js';
 
 // Import WebSocket initialization
 import { initializeWebSocket } from './config/websocket.js';
@@ -74,9 +77,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/caddies', caddieRoutes);
 app.use('/api/turns', turnRoutes);
 app.use('/api/attendance', attendanceRoutes);
-app.use('/api/list-settings', listSettingsRoutes);
+app.use('/api/lists', listsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/dispatch', dispatchRoutes);
+app.use('/api/schedule', scheduleRoutes);
+app.use('/api/public', publicRoutes);
 
 // 404 handler
 app.use((req, res) => {

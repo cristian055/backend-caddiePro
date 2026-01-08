@@ -7,14 +7,17 @@ import { emitToList, emitToAll, getIO } from '../config/websocket.js';
 
 /**
  * Emit caddie status changed event
- * @param {object} caddie - Caddie object with id, name, status, listNumber
+ * @param {object} caddie - Caddie object with id, name, status, category
  */
 export function emitCaddieStatusChanged(caddie) {
-  emitToList(caddie.listNumber, 'caddie:status_changed', {
+  const category = caddie.category || 'Primera';
+  emitToAll('caddie:status:changed', {
     caddieId: caddie.id,
     name: caddie.name,
-    status: caddie.status,
-    listNumber: caddie.listNumber,
+    previousStatus: caddie.previousStatus,
+    newStatus: caddie.status,
+    category,
+    timestamp: Date.now(),
   });
 }
 
@@ -23,14 +26,15 @@ export function emitCaddieStatusChanged(caddie) {
  * @param {object} caddie - Newly created caddie object
  */
 export function emitCaddieAdded(caddie) {
-  emitToList(caddie.listNumber, 'caddie:added', {
+  emitToAll('caddie:added', {
     caddieId: caddie.id,
     name: caddie.name,
-    listNumber: caddie.listNumber,
+    number: caddie.number,
+    category: caddie.category,
     status: caddie.status,
-    phoneNumber: caddie.phoneNumber,
-    createdAt: caddie.createdAt,
-    updatedAt: caddie.updatedAt,
+    location: caddie.location,
+    role: caddie.role,
+    timestamp: Date.now(),
   });
 }
 
@@ -38,23 +42,76 @@ export function emitCaddieAdded(caddie) {
  * Emit caddie updated event
  * @param {string} caddieId - Caddie ID
  * @param {object} updates - Updated fields
- * @param {number} listNumber - Caddie's list number
+ * @param {string} category - Caddie's category
  */
-export function emitCaddieUpdated(caddieId, updates, listNumber) {
-  emitToList(listNumber, 'caddie:updated', {
+export function emitCaddieUpdated(caddieId, updates, category) {
+  emitToAll('caddie:updated', {
     caddieId,
     updates,
+    category,
+    timestamp: Date.now(),
   });
 }
 
 /**
  * Emit caddie deleted event
  * @param {string} caddieId - Deleted caddie ID
- * @param {number} listNumber - Caddie's list number
+ * @param {string} category - Caddie's category
  */
-export function emitCaddieDeleted(caddieId, listNumber) {
-  emitToList(listNumber, 'caddie:deleted', {
+export function emitCaddieDeleted(caddieId, category) {
+  emitToAll('caddie:deleted', {
     caddieId,
+    category,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Emit caddie dispatched event (for batch dispatch)
+ * @param {string[]} ids - Array of dispatched caddie IDs
+ * @param {object[]} caddies - Array of caddie objects
+ * @param {number} timestamp - Timestamp of dispatch
+ */
+export function emitCaddieDispatched(ids, caddies, timestamp) {
+  emitToAll('caddie:dispatched', {
+    ids,
+    caddies,
+    timestamp,
+  });
+}
+
+/**
+ * Emit queue updated event
+ * @param {string} category - Category that was updated
+ */
+export function emitQueueUpdated(category) {
+  emitToAll('queue:updated', {
+    category,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Emit schedule updated event
+ * @param {string} day - Day that was updated
+ */
+export function emitScheduleUpdated(day) {
+  emitToAll('schedule:updated', {
+    day,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Emit list updated event
+ * @param {string} listId - List ID
+ * @param {object} list - Updated list object
+ */
+export function emitListUpdated(listId, list) {
+  emitToAll('list:updated', {
+    listId,
+    list,
+    timestamp: Date.now(),
   });
 }
 

@@ -17,65 +17,75 @@ describe('Caddies Endpoints', () => {
   });
 
   describe('GET /api/caddies', () => {
-    test('should get all caddies without authentication', async () => {
-      const response = await request(app).get('/api/caddies');
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body.length).toBeGreaterThan(0);
-      expect(response.body[0]).toHaveProperty('id');
-      expect(response.body[0]).toHaveProperty('name');
-      expect(response.body[0]).toHaveProperty('listNumber');
-      expect(response.body[0]).toHaveProperty('status');
-    });
-
     test('should get all caddies with authentication', async () => {
       const response = await request(app)
         .get('/api/caddies')
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data.caddies)).toBe(true);
+      expect(response.body.data.caddies.length).toBeGreaterThan(0);
+      expect(response.body.data.caddies[0]).toHaveProperty('id');
+      expect(response.body.data.caddies[0]).toHaveProperty('name');
+      expect(response.body.data.caddies[0]).toHaveProperty('category');
+      expect(response.body.data.caddies[0]).toHaveProperty('status');
+    });
+
+    test('should fail without authentication', async () => {
+      const response = await request(app).get('/api/caddies');
+      expect(response.status).toBe(401);
+    });
+
+    test('should filter by category', async () => {
+      const response = await request(app)
+        .get('/api/caddies?category=Primera')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data.caddies)).toBe(true);
+      response.body.data.caddies.forEach((caddie) => {
+        expect(caddie.category).toBe('Primera');
+      });
+    });
+
+    test('should filter by activeStatus', async () => {
+      const response = await request(app)
+        .get('/api/caddies?activeStatus=Active')
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(Array.isArray(response.body.data.caddies)).toBe(true);
+      response.body.data.caddies.forEach((caddie) => {
+        expect(caddie.isActive).toBe(true);
+      });
     });
   });
 
   describe('GET /api/caddies/:id', () => {
     test('should get single caddie by ID', async () => {
-      const response = await request(app).get('/api/caddies/test-caddie-1');
+      const response = await request(app)
+        .get('/api/caddies/test-caddie-1')
+        .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('id');
-      expect(response.body).toHaveProperty('name');
-      expect(response.body).toHaveProperty('listNumber');
-      expect(response.body).toHaveProperty('status');
-      expect(response.body.name).toBe('Test Caddie 1');
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('id');
+      expect(response.body.data).toHaveProperty('name');
+      expect(response.body.data).toHaveProperty('category');
+      expect(response.body.data).toHaveProperty('status');
+      expect(response.body.data.name).toBe('Test Caddie 1');
     });
 
     test('should return 404 for non-existent caddie', async () => {
-      const response = await request(app).get('/api/caddies/non-existent-id');
+      const response = await request(app)
+        .get('/api/caddies/non-existent-id')
+        .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(404);
-      expect(response.body.error).toBeDefined();
-    });
-  });
-
-  describe('GET /api/caddies/list/:listNumber', () => {
-    test('should get caddies by list number', async () => {
-      const response = await request(app).get('/api/caddies/list/1');
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-      response.body.forEach((caddie) => {
-        expect(caddie.listNumber).toBe(1);
-      });
-    });
-
-    test('should return empty array for list with no caddies', async () => {
-      const response = await request(app).get('/api/caddies/list/99');
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body)).toBe(true);
-      expect(response.body.length).toBe(0);
+      expect(response.body.success).toBe(false);
     });
   });
 
@@ -83,8 +93,10 @@ describe('Caddies Endpoints', () => {
     test('should create new caddie with authentication', async () => {
       const newCaddie = {
         name: 'New Test Caddie',
-        listNumber: 1,
-        phoneNumber: '+1234567890',
+        number: 88,
+        category: 'Primera',
+        location: 'Llanogrande',
+        role: 'Golf',
       };
 
       const response = await request(app)
@@ -93,18 +105,22 @@ describe('Caddies Endpoints', () => {
         .send(newCaddie);
 
       expect(response.status).toBe(201);
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.name).toBe(newCaddie.name);
-      expect(response.body.listNumber).toBe(newCaddie.listNumber);
-      expect(response.body.phoneNumber).toBe(newCaddie.phoneNumber);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('id');
+      expect(response.body.data.name).toBe(newCaddie.name);
+      expect(response.body.data.category).toBe(newCaddie.category);
+      expect(response.body.data.number).toBe(newCaddie.number);
 
-      testCaddieId = response.body.id;
+      testCaddieId = response.body.data.id;
     });
 
     test('should fail to create caddie without authentication', async () => {
       const newCaddie = {
         name: 'Unauthorized Caddie',
-        listNumber: 1,
+        number: 89,
+        category: 'Primera',
+        location: 'Llanogrande',
+        role: 'Golf',
       };
 
       const response = await request(app).post('/api/caddies').send(newCaddie);
@@ -116,16 +132,16 @@ describe('Caddies Endpoints', () => {
       const response = await request(app)
         .post('/api/caddies')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'No List' });
+        .send({ name: 'No Category' });
 
       expect(response.status).toBe(400);
     });
 
-    test('should fail with invalid list number', async () => {
+    test('should fail with invalid category', async () => {
       const response = await request(app)
         .post('/api/caddies')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Invalid List', listNumber: 5 });
+        .send({ name: 'Invalid Category', number: 90, category: 'InvalidCategory', location: 'Llanogrande', role: 'Golf' });
 
       expect(response.status).toBe(400);
     });
@@ -135,35 +151,58 @@ describe('Caddies Endpoints', () => {
     test('should update caddie with authentication', async () => {
       const updates = {
         name: 'Updated Test Caddie',
-        status: 'Ausente',
       };
 
       const response = await request(app)
         .put(`/api/caddies/${testCaddieId}`)
         .set('Authorization', `Bearer ${authToken}`)
-        .send(updates);
+        .send({ updates });
 
       expect(response.status).toBe(200);
-      expect(response.body.name).toBe(updates.name);
-      expect(response.body.status).toBe(updates.status);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.name).toBe(updates.name);
     });
 
     test('should fail to update without authentication', async () => {
       const response = await request(app)
         .put(`/api/caddies/${testCaddieId}`)
-        .send({ name: 'Should Fail' });
+        .send({ updates: { name: 'Should Fail' } });
 
       expect(response.status).toBe(401);
     });
   });
 
+  describe('PATCH /api/caddies/:id/status', () => {
+    test('should update caddie status', async () => {
+      const response = await request(app)
+        .patch(`/api/caddies/${testCaddieId}/status`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'IN_PREP' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe('IN_PREP');
+    });
+
+    test('should fail with invalid status', async () => {
+      const response = await request(app)
+        .patch(`/api/caddies/${testCaddieId}/status`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ status: 'INVALID_STATUS' });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
   describe('DELETE /api/caddies/:id', () => {
-    test('should delete caddie with authentication', async () => {
+    test('should deactivate caddie with authentication (soft delete)', async () => {
       const response = await request(app)
         .delete(`/api/caddies/${testCaddieId}`)
         .set('Authorization', `Bearer ${authToken}`);
 
-      expect(response.status).toBe(204);
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.message).toBe('Caddie deactivated successfully');
     });
 
     test('should fail to delete without authentication', async () => {
@@ -172,10 +211,13 @@ describe('Caddies Endpoints', () => {
       expect(response.status).toBe(401);
     });
 
-    test('should verify caddie was deleted', async () => {
-      const response = await request(app).get(`/api/caddies/${testCaddieId}`);
+    test('should still find caddie after soft delete but marked inactive', async () => {
+      const response = await request(app)
+        .get(`/api/caddies/${testCaddieId}`)
+        .set('Authorization', `Bearer ${authToken}`);
 
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(200);
+      expect(response.body.data.isActive).toBe(false);
     });
   });
 });

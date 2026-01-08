@@ -15,16 +15,22 @@ export const getAllMessages = async (req, res) => {
 
 export const createMessage = async (req, res) => {
   try {
-    const { content, targetList } = req.body;
+    const { content, targetCategory } = req.body;
 
     if (!content) {
       return res.status(400).json({ error: 'Content is required' });
     }
 
+    // Validate targetCategory if provided
+    const validCategories = ['Primera', 'Segunda', 'Tercera'];
+    if (targetCategory && !validCategories.includes(targetCategory)) {
+      return res.status(400).json({ error: 'Invalid target category' });
+    }
+
     const message = await prisma.message.create({
       data: {
         content,
-        targetList: targetList ? parseInt(targetList) : null,
+        targetCategory: targetCategory || null,
       },
     });
 
