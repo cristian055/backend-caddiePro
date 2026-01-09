@@ -178,12 +178,17 @@ export function emitToList(listNumber, event, data) {
   }
 
   const room = `list-${listNumber}`;
-  io.to(room).emit(event, {
+  const roomSockets = io.sockets.adapter.rooms.get(room);
+  const roomSize = roomSockets ? roomSockets.size : 0;
+  
+  const payload = {
     event,
     data,
     timestamp: new Date().toISOString(),
-  });
-  console.log(`[WS] Emitted ${event} to ${room}:`, data.caddieId || data.id || 'N/A');
+  };
+  
+  io.to(room).emit(event, payload);
+  console.log(`[WS] Emitted ${event} to room ${room} (${roomSize} client(s)):`, data.caddieId || data.id || 'N/A');
 }
 
 /**
@@ -197,12 +202,15 @@ export function emitToAll(event, data) {
     return;
   }
 
-  io.emit(event, {
+  const connectedSockets = io.sockets.sockets.size;
+  const payload = {
     event,
     data,
     timestamp: new Date().toISOString(),
-  });
-  console.log(`[WS] Emitted ${event} to all clients`);
+  };
+  
+  io.emit(event, payload);
+  console.log(`[WS] Emitted ${event} to ${connectedSockets} connected client(s)`);
 }
 
 /**
@@ -225,10 +233,34 @@ export function emitToAdmins(event, data) {
   });
 }
 
+/**
+ * Get WebSocket connection statistics
+ * @returns {object} Statistics about connected clients and rooms
+ */
+export function getWebSocketStats() {
+  if (!io) {
+    return { initialized: false, connectedClients: 0, rooms: {} };
+  }
+
+  const rooms = {};
+  for (let i = 1; i <= 3; i++) {
+    const room = `list-${i}`;
+    const roomSockets = io.sockets.adapter.rooms.get(room);
+    rooms[room] = roomSockets ? roomSockets.size : 0;
+  }
+
+  return {
+    initialized: true,
+    connectedClients: io.sockets.sockets.size,
+    rooms,
+  };
+}
+
 export default {
   initializeWebSocket,
   getIO,
   emitToList,
   emitToAll,
   emitToAdmins,
+  getWebSocketStats,
 };

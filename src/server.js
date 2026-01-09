@@ -16,7 +16,7 @@ import scheduleRoutes from './routes/schedule.js';
 import publicRoutes from './routes/public.js';
 
 // Import WebSocket initialization
-import { initializeWebSocket } from './config/websocket.js';
+import { initializeWebSocket, getWebSocketStats } from './config/websocket.js';
 
 // Load environment variables
 dotenv.config();
@@ -70,6 +70,15 @@ app.use((req, res, next) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'CaddiePro API is running' });
+});
+
+// WebSocket status endpoint (for debugging)
+app.get('/ws-status', (req, res) => {
+  const stats = getWebSocketStats();
+  res.json({
+    success: true,
+    data: stats,
+  });
 });
 
 // API routes
