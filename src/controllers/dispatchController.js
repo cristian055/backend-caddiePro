@@ -56,12 +56,24 @@ export const bulkDispatch = async (req, res) => {
           },
         });
 
-        // Validate listId if provided - it must exist in ListConfig
+        // Resolve listId - supports both UUID and 'list-N' format
         let validListId = null;
         if (listId) {
-          const listConfig = await prisma.listConfig.findUnique({ where: { id: listId } });
+          // First try direct UUID lookup
+          let listConfig = await prisma.listConfig.findUnique({ where: { id: listId } });
+          
+          // If not found, check if it's 'list-N' format and lookup by category
+          if (!listConfig && typeof listId === 'string' && listId.startsWith('list-')) {
+            const listNumber = listId.replace('list-', '');
+            const categoryMap = { '1': 'Primera', '2': 'Segunda', '3': 'Tercera' };
+            const category = categoryMap[listNumber];
+            if (category) {
+              listConfig = await prisma.listConfig.findFirst({ where: { category } });
+            }
+          }
+          
           if (listConfig) {
-            validListId = listId;
+            validListId = listConfig.id;
           } else {
             console.warn(`[Dispatch] ListConfig not found for listId: ${listId}, will be set to null`);
           }
