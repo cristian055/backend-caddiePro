@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient();
 
+// Parse command line arguments
+const args = process.argv.slice(2);
+const isFresh = args.includes('--fresh') || args.includes('-f');
+
 // Map category names to values
 const CATEGORY_MAP = {
   'Primera': 'Primera',
@@ -17,6 +21,32 @@ const CATEGORY_MAP = {
 
 async function importCaddies() {
   console.log('🚀 Starting caddie import...\n');
+  
+  // If --fresh flag is provided, clean existing data
+  if (isFresh) {
+    console.log('🧹 Fresh import requested - cleaning existing data...\n');
+    
+    // Delete in order to respect foreign key constraints
+    const deletedHistory = await prisma.dispatchHistory.deleteMany({});
+    console.log(`   Deleted ${deletedHistory.count} dispatch history records`);
+    
+    const deletedAvailability = await prisma.caddieAvailability.deleteMany({});
+    console.log(`   Deleted ${deletedAvailability.count} availability records`);
+    
+    const deletedServiceLogs = await prisma.serviceLog.deleteMany({});
+    console.log(`   Deleted ${deletedServiceLogs.count} service log records`);
+    
+    const deletedAssignments = await prisma.weeklyAssignment.deleteMany({});
+    console.log(`   Deleted ${deletedAssignments.count} weekly assignment records`);
+    
+    const deletedCaddies = await prisma.caddie.deleteMany({});
+    console.log(`   Deleted ${deletedCaddies.count} caddies`);
+    
+    const deletedLists = await prisma.listConfig.deleteMany({});
+    console.log(`   Deleted ${deletedLists.count} list configs`);
+    
+    console.log('\n✅ Database cleaned successfully!\n');
+  }
 
   // Read CSV file
   const csvPath = path.join(__dirname, '../load_data/caddies.csv');
@@ -164,6 +194,22 @@ async function importCaddies() {
   }
 
   console.log('\n🎉 Import completed!');
+}
+
+// Show help if requested
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`
+Usage: npm run import:caddies [options]
+
+Options:
+  --fresh, -f    Delete all existing caddies and related data before importing
+  --help, -h     Show this help message
+
+Examples:
+  npm run import:caddies              # Import caddies (skips existing)
+  npm run import:caddies -- --fresh   # Clean database and import fresh
+`);
+  process.exit(0);
 }
 
 importCaddies()
