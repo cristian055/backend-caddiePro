@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { emitListUpdated, emitQueueUpdated } from '../utils/websocketEmitter.js';
 
 const VALID_CATEGORIES = ['Primera', 'Segunda', 'Tercera'];
 const VALID_LOCATIONS = ['Llanogrande', 'Medellín'];
@@ -168,6 +169,20 @@ export const updateList = async (req, res) => {
       where: { id },
       data,
     });
+
+    // Emit WebSocket events to notify clients
+    emitListUpdated(updatedList.id, {
+      id: updatedList.id,
+      name: updatedList.name,
+      order: updatedList.orderType,
+      rangeStart: updatedList.rangeStart,
+      rangeEnd: updatedList.rangeEnd,
+      category: updatedList.category,
+      location: updatedList.location,
+    });
+
+    // Emit queue updated for category
+    emitQueueUpdated(updatedList.category);
 
     res.json({
       success: true,

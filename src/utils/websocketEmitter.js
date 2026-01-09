@@ -156,6 +156,9 @@ export default {
   emitCaddieAdded,
   emitCaddieUpdated,
   emitCaddieDeleted,
+  emitCaddieDispatched,
+  emitQueueUpdated,
+  emitListUpdated,
   emitMessageBroadcast,
   isWebSocketConnected,
 };
