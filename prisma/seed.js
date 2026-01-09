@@ -4,98 +4,122 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Starting seed...');
+  console.log('Starting seed...\n');
 
-  // Create default admin - MongoDB generates ObjectId automatically
-  // Check if admin already exists
-  const existingAdmin = await prisma.admin.findFirst();
+  // ============================================
+  // Create default admin user
+  // ============================================
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: 'admin@campestre.com' },
+  });
+
   if (!existingAdmin) {
     const hashedPassword = await bcrypt.hash('admin123', 10);
-    const admin = await prisma.admin.create({
+    const admin = await prisma.user.create({
       data: {
-        password: hashedPassword,
+        email: 'admin@campestre.com',
+        passwordHash: hashedPassword,
+        role: 'admin',
+        location: 'Llanogrande',
+        isActive: true,
       },
     });
-    console.log('Created admin user. Default password: admin123');
-    console.log('Admin ID:', admin.id);
+    console.log('✅ Created admin user:');
+    console.log('   Email: admin@campestre.com');
+    console.log('   Password: admin123');
+    console.log('   Role: admin');
   } else {
-    console.log('Admin already exists');
+    console.log('⏭️  Admin user already exists');
   }
 
-  // Create default list settings
-  const lists = [1, 2, 3];
-  for (const listNumber of lists) {
-    const existingSettings = await prisma.listSettings.findUnique({
-      where: { listNumber },
+  // ============================================
+  // Create default list configurations
+  // ============================================
+  const listDefaults = [
+    { category: 'Primera', name: 'Lista Primera', rangeStart: 1, rangeEnd: 60 },
+    { category: 'Segunda', name: 'Lista Segunda', rangeStart: 1, rangeEnd: 30 },
+    { category: 'Tercera', name: 'Lista Tercera', rangeStart: 1, rangeEnd: 25 },
+  ];
+
+  console.log('\n📋 Checking list configurations...');
+  for (const listDef of listDefaults) {
+    const existing = await prisma.listConfig.findFirst({
+      where: { category: listDef.category },
     });
 
-    if (!existingSettings) {
-      await prisma.listSettings.create({
+    if (!existing) {
+      await prisma.listConfig.create({
         data: {
-          listNumber,
-          callTime: '06:00',
-          order: 'ascendente',
-          rangeStart: 1,
-          rangeEnd: 20,
+          name: listDef.name,
+          category: listDef.category,
+          location: 'Llanogrande',
+          rangeStart: listDef.rangeStart,
+          rangeEnd: listDef.rangeEnd,
+          orderType: 'ASC',
         },
       });
-      console.log(`Created list settings for List ${listNumber}`);
+      console.log(`   ✅ Created: ${listDef.name}`);
     } else {
-      console.log(`List settings for List ${listNumber} already exists`);
+      console.log(`   ⏭️  Already exists: ${listDef.category}`);
     }
-
-    // Create sample caddies for each list
-    const sampleCaddies = [
-      'Juan Pérez',
-      'Carlos García',
-      'Roberto López',
-      'Miguel Martínez',
-      'Antonio Sánchez',
-      'Fernando González',
-    ];
-
-    for (let i = 0; i < sampleCaddies.length; i++) {
-      const caddie = await prisma.caddie.create({
-        data: {
-          name: sampleCaddies[i],
-          listNumber,
-          status: 'Disponible',
-        },
-      });
-
-      // Create queue entry
-      await prisma.caddieQueue.create({
-        data: {
-          caddieId: caddie.id,
-          listNumber,
-          position: i + 1,
-          available: true,
-        },
-      });
-    }
-    console.log(`Created sample caddies for List ${listNumber}`);
   }
 
-  // Create a welcome message
+  // ============================================
+  // Create sample caddies (only if no caddies exist)
+  // ============================================
+  const caddieCount = await prisma.caddie.count();
+  
+  if (caddieCount === 0) {
+    console.log('\n👤 Creating sample caddies...');
+    
+    const sampleCaddies = [
+      { name: 'Test Caddie 1', number: 1, category: 'Primera' },
+      { name: 'Test Caddie 2', number: 2, category: 'Primera' },
+      { name: 'Test Caddie 3', number: 1, category: 'Segunda' },
+      { name: 'Test Caddie 4', number: 2, category: 'Segunda' },
+      { name: 'Test Caddie 5', number: 1, category: 'Tercera' },
+      { name: 'Test Caddie 6', number: 2, category: 'Tercera' },
+    ];
+
+    for (const caddie of sampleCaddies) {
+      await prisma.caddie.create({
+        data: {
+          name: caddie.name,
+          number: caddie.number,
+          category: caddie.category,
+          status: 'AVAILABLE',
+          isActive: true,
+          location: 'Llanogrande',
+          role: 'Golf',
+          weekendPriority: caddie.number,
+        },
+      });
+      console.log(`   ✅ Created: ${caddie.name} (${caddie.category})`);
+    }
+  } else {
+    console.log(`\n⏭️  ${caddieCount} caddies already exist, skipping sample data`);
+  }
+
+  // ============================================
+  // Create welcome message
+  // ============================================
   const messageCount = await prisma.message.count();
   if (messageCount === 0) {
     await prisma.message.create({
       data: {
-        content: '¡Bienvenido al sistema de gestión de Caddies! 🏌️‍♂️',
-        targetList: null,
+        content: '¡Bienvenido al sistema de gestión de Caddies!',
+        targetCategory: null,
       },
     });
-    console.log('Created welcome message');
-  } else {
-    console.log('Messages already exist');
+    console.log('\n✅ Created welcome message');
   }
 
-  console.log('Seed completed successfully!');
+  console.log('\n🎉 Seed completed successfully!');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('Seed failed:', e);
     process.exit(1);
   })
   .finally(async () => {
