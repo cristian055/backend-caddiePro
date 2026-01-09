@@ -14,14 +14,16 @@ npm test                            # All tests
 npm run test:watch                  # Watch mode
 npm run test:coverage               # Coverage report
 npm run test:single tests/file.test.js          # Run single test file
-npm run test:single -- --testNamePattern="name" # Run by test name
+npm run test:single -- --testNamePattern="name"  # Run by test name pattern
 
 # Database (Prisma)
 npm run prisma:generate             # Regenerate Prisma client
+npm run prisma:migrate              # Run database migrations
 npm run prisma:push                 # Push schema changes (dev)
+npm run prisma:studio               # Open Prisma Studio GUI
 npm run prisma:seed                 # Seed database
 npm run import:caddies              # Import caddies from CSV
-npm run reset:admin:force           # Reset admin password
+npm run reset:admin:force           # Reset admin password to 'admin123'
 
 # Full Setup
 npm run install:all                 # Install + generate + push + seed
@@ -50,6 +52,7 @@ prisma/             # schema.prisma, seed.js
 ```javascript
 import express from 'express';
 import prisma from '../config/database.js';
+import { emitQueueUpdated } from '../utils/websocketEmitter.js';
 import { authenticate } from '../middleware/auth.js';
 ```
 
@@ -64,7 +67,7 @@ import { authenticate } from '../middleware/auth.js';
 
 ### Response & Error Handling
 ```javascript
-// Success: res.status(200).json({ success: true, data: {...}, message: 'Optional' });
+// Success: res.status(200).json({ success: true, data: {...} });
 // Error: res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: '...' } });
 
 // Controller pattern with try/catch
@@ -74,6 +77,7 @@ export const getCaddie = async (req, res) => {
     if (!caddie) return res.status(404).json({
       success: false, error: { code: 'NOT_FOUND', message: 'Caddie not found' }
     });
+
     res.json({ success: true, data: caddie });
   } catch (error) {
     console.error('Get caddie error:', error);
@@ -89,10 +93,13 @@ export const getCaddie = async (req, res) => {
 ### Validation (express-validator)
 ```javascript
 import { body, param } from 'express-validator';
+
 router.post('/', authenticate, [
   body('name').isLength({ min: 2, max: 100 }),
   body('category').isIn(['Primera', 'Segunda', 'Tercera']),
   body('number').isInt({ min: 1, max: 999 }),
+  body('rangeStart').isInt({ min: 1, max: 999 }),
+  body('rangeEnd').isInt({ min: 1, max: 999 }),
   param('id').isUUID()
 ], createCaddie);
 ```
@@ -112,7 +119,35 @@ await prisma.$transaction([
 ]);
 ```
 
+## WebSocket Integration
+
+**Critical**: Always emit WebSocket events after state changes to keep frontend in sync.
+
+```javascript
+// Emit list updates
+import { emitListUpdated, emitQueueUpdated } from '../utils/websocketEmitter.js';
+
+export const updateList = async (req, res) => {
+  const updatedList = await prisma.listConfig.update({...});
+
+  // Emit events for real-time sync
+  emitListUpdated(updatedList.id, { /* list config */ });
+  emitQueueUpdated(updatedList.category);
+
+  res.json({ success: true, data: updatedList });
+};
+```
+
+**Emitted Events**: `caddie:status_changed`, `caddie:added`, `caddie:updated`, `caddie:deleted`, `caddie:dispatched`, `queue:updated`, `list:updated`
+
+**Payload**: `{ event, data: {...}, timestamp }` - nested data for frontend compatibility
+
+**Rooms**: `list-1` (Primera), `list-2` (Segunda), `list-3` (Tercera)
+
+**Client Events**: `subscribe` (join rooms), `unsubscribe` (leave rooms), `ping/pong` (health check)
+
 ## Authentication
+
 - JWT header: `Authorization: Bearer <token>`
 - Admin routes: `authenticate` middleware, public routes: `optionalAuth`
 - User attached to `req.user` after successful authentication
@@ -124,6 +159,7 @@ JWT_SECRET=your-secret-key-here
 JWT_EXPIRES_IN=24h
 CORS_ORIGINS=http://localhost:5173,https://frontend.vercel.app
 NODE_ENV=development
+PORT=3000
 ```
 
 ## API Endpoints
@@ -132,28 +168,24 @@ NODE_ENV=development
 
 **Admin (Auth Required)**: `POST /api/auth/login`, `GET/POST/PUT/DELETE /api/caddies`, `PATCH /api/caddies/:id/status`, `POST /api/dispatch/bulk`, `GET/POST /api/lists`, `GET /api/attendance/*`, `GET /api/reports/*`
 
-## WebSocket
-
-**Emitted Events**: `caddie:status_changed`, `caddie:added`, `caddie:updated`, `caddie:deleted`, `caddie:dispatched`, `queue:updated`
-
-**Payload**: `{ event, data: {...}, timestamp }` - nested data for frontend compatibility
-
-**Rooms**: `list-1` (Primera), `list-2` (Segunda), `list-3` (Tercera)
-
-**Client Events**: `subscribe` (join rooms), `unsubscribe` (leave rooms), `ping/pong` (health check)
-
-**Auth**: Public users connect without token. Use `?lists=1,2,3` query param or `subscribe` event.
-
 ## Git Commits
+
 Format: `type(scope): description` - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
-Examples: `feat(caddies): add bulk dispatch endpoint` | `fix(auth): resolve token expiration issue`
+Examples:
+- `feat(caddies): add bulk dispatch endpoint`
+- `fix(auth): resolve token expiration issue`
+- `refactor(lists): extract validation logic to utils`
+- `test(dispatch): add coverage for bulk dispatch`
+- `chore(deps): upgrade socket.io to v4.8.3`
 
 ## Common Issues
-1. **CORS** - Add origin to `CORS_ORIGINS` env var
-2. **JWT** - Ensure `JWT_EXPIRES_IN=24h` (no quotes)
-3. **PostgreSQL** - `DATABASE_URL` must be valid connection string
+
+1. **CORS** - Add origin to `CORS_ORIGINS` env var (comma-separated)
+2. **JWT** - Ensure `JWT_EXPIRES_IN=24h` (no quotes, no "s" for hours)
+3. **PostgreSQL** - `DATABASE_URL` must be valid connection string with correct port
 4. **Prisma** - Run `npm run prisma:generate` after schema changes
-5. **Tests** - Use `--testNamePattern` to filter by test name
-6. **ESM** - Always use `.js` extensions in imports
-7. **WebSocket** - Check CORS allows WebSocket connections
+5. **Tests** - Use `--testNamePattern` to filter by test name pattern
+6. **ESM** - Always use `.js` extensions in imports, never `.ts` (transpiled)
+7. **WebSocket sync** - Always emit events after state changes (list, queue, dispatch)
+8. **Port conflicts** - Backend runs on port 3000, frontend on 5173
