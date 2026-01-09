@@ -1,35 +1,51 @@
 # AGENTS.md - CaddiePro Backend Guidelines
 
+Multi-sport venue management system. **Tech Stack:** Node.js, Express, Prisma, PostgreSQL, Socket.IO, JWT.
+
 ## Commands
 
 ```bash
-# Tests
-npm test                           # All tests
-npm run test:watch                 # Watch mode
-npm run test:coverage              # Coverage report
-npm run test:single tests/file.test.js    # Single file
-npm run test:single -- --testNamePattern="pattern"  # By name
-
-# Database
-npm run prisma:generate            # Regenerate client
-npm run prisma:push                # Push schema (dev)
-npm run prisma:seed                # Seed data
-npm run reset:admin:force          # Reset admin password
-npm run import:caddies             # Import from CSV
-
-# Server
+# Development
 npm run dev                        # Hot reload (port 3000)
-npm start                          # Production
-npm run install:all                # Full setup
+npm start                          # Production mode
+
+# Testing
+npm test                            # All tests
+npm run test:watch                  # Watch mode
+npm run test:coverage               # Coverage report
+npm run test:single tests/file.test.js          # Run single test file
+npm run test:single -- --testNamePattern="name" # Run by test name
+
+# Database (Prisma)
+npm run prisma:generate             # Regenerate Prisma client
+npm run prisma:push                 # Push schema changes (dev)
+npm run prisma:seed                 # Seed database
+npm run import:caddies              # Import caddies from CSV
+npm run reset:admin:force           # Reset admin password
+
+# Full Setup
+npm run install:all                 # Install + generate + push + seed
 ```
 
 ## Code Style
 
+### File Structure
+```
+src/
+├── config/         # database.js, websocket.js
+├── controllers/    # Business logic (e.g., caddieController.js)
+├── middleware/     # auth.js
+├── routes/         # Express routes (e.g., caddie.js)
+├── utils/          # jwt.js, password.js, websocketEmitter.js
+└── server.js       # Entry point
+tests/              # *.test.js files
+prisma/             # schema.prisma, seed.js
+```
+
 ### Imports & Files
-- ES modules (`import`/`export`)
-- Order: external libs → internal utils → internal config → relative modules
-- Files: `*Controller.js`, `*.js` (routes, middleware, utils)
-- No TypeScript - plain JavaScript (.js)
+- ES Modules (`import`/`export`), type: "module" in package.json
+- Always include `.js` file extensions in imports
+- Import order: External libs → internal utils → internal config → relative modules
 
 ```javascript
 import express from 'express';
@@ -37,31 +53,21 @@ import prisma from '../config/database.js';
 import { authenticate } from '../middleware/auth.js';
 ```
 
-### Naming
-- Variables/functions: `camelCase`
-- Classes: `PascalCase`
-- Constants: `UPPER_SNAKE_CASE`
-- Database models: `PascalCase` (Prisma)
-- Routes: kebab-case URL paths
+### Naming Conventions
+| Type | Convention | Example |
+|------|------------|---------|
+| Variables/functions | camelCase | `getCaddie`, `createCaddie` |
+| Classes | PascalCase | `UserService` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_ATTEMPTS` |
+| Database models | PascalCase | `Caddie`, `User` |
+| Routes | kebab-case | `/api/caddies/:id/status` |
 
-### Response Format
-Always use consistent response structure:
-
+### Response & Error Handling
 ```javascript
-// Success
-res.status(200).json({ success: true, data: {...}, message: 'Optional' });
-// Error
-res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: '...' } });
-```
+// Success: res.status(200).json({ success: true, data: {...}, message: 'Optional' });
+// Error: res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: '...' } });
 
-### Error Codes
-- `VALIDATION_ERROR` - Invalid input (400)
-- `NOT_FOUND` - Resource doesn't exist (404)
-- `DUPLICATE_ENTRY` - Unique constraint violation (409)
-- `INTERNAL_ERROR` - Server error (500)
-
-### Error Handling Pattern
-```javascript
+// Controller pattern with try/catch
 export const getCaddie = async (req, res) => {
   try {
     const caddie = await prisma.caddie.findUnique({ where: { id: req.params.id } });
@@ -76,17 +82,17 @@ export const getCaddie = async (req, res) => {
 };
 ```
 
-### HTTP Status Codes
-GET: 200/404 | POST: 201/400/409 | PUT: 200/400/404 | DELETE: 200/404 | PATCH: 200/400/404
+**Error Codes**: `VALIDATION_ERROR` (400), `NOT_FOUND` (404), `DUPLICATE_ENTRY` (409), `INTERNAL_ERROR` (500)
 
-### Validation
-Use `express-validator` middleware in routes:
+**Status Codes**: GET 200/404 | POST 201/400/409 | PUT/PATCH 200/400/404 | DELETE 200/404
 
+### Validation (express-validator)
 ```javascript
 import { body, param } from 'express-validator';
 router.post('/', authenticate, [
   body('name').isLength({ min: 2, max: 100 }),
   body('category').isIn(['Primera', 'Segunda', 'Tercera']),
+  body('number').isInt({ min: 1, max: 999 }),
   param('id').isUUID()
 ], createCaddie);
 ```
@@ -96,12 +102,10 @@ router.post('/', authenticate, [
 - Import prisma from `src/config/database.js`
 - Use `@map` for snake_case columns, `@@map` for snake_case tables
 - Composite unique: use `findFirst`, not `findUnique`
-- Always use transactions for multi-step operations
+- Use transactions for multi-step operations
 
 ```javascript
-// Composite unique check
 const existing = await prisma.caddie.findFirst({ where: { number, category } });
-// Transaction example
 await prisma.$transaction([
   prisma.caddie.update({ where: { id }, data: { status } }),
   prisma.dispatchHistory.create({ data: { caddieId, previousStatus, newStatus } })
@@ -109,84 +113,47 @@ await prisma.$transaction([
 ```
 
 ## Authentication
-- JWT: `Authorization: Bearer <token>`
-- Admin routes: `authenticate` middleware
-- Public routes: `optionalAuth`
-- User attached to `req.user` after auth
+- JWT header: `Authorization: Bearer <token>`
+- Admin routes: `authenticate` middleware, public routes: `optionalAuth`
+- User attached to `req.user` after successful authentication
 
 ## Environment Variables
-```
-DATABASE_URL=postgresql://...
-JWT_SECRET=your-secret-key
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+JWT_SECRET=your-secret-key-here
 JWT_EXPIRES_IN=24h
 CORS_ORIGINS=http://localhost:5173,https://frontend.vercel.app
-```
-
-## Architecture
-```
-src/
-├── config/         # database.js, websocket.js
-├── controllers/    # Business logic
-├── middleware/     # auth.js
-├── routes/         # Express routes
-├── utils/          # jwt.js, password.js, websocketEmitter.js
-└── server.js       # Entry point
-tests/              # *.test.js files
-prisma/             # schema.prisma, seed.js
+NODE_ENV=development
 ```
 
 ## API Endpoints
 
-### Public Endpoints (No Authentication Required)
-- `/api/public/queue` - Get current queue state (top 5 per category)
-- `/api/public/lists` - Get all caddies organized by list/category
-- `/api/public/lists/:listNumber` - Get caddies from a specific list (1=Primera, 2=Segunda, 3=Tercera)
-- `/api/public/weekly` - Get weekly schedule (read-only)
+**Public (No Auth)**: `GET /api/public/queue`, `GET /api/public/lists`, `GET /api/public/lists/:listNumber`
 
-### Admin Endpoints (Authentication Required)
-- `/api/auth/*` - Authentication
-- `/api/caddies/*` - Caddie CRUD + PATCH /:id/status
-- `/api/turns/*` - Golf turns
-- `/api/attendance/*` - Daily attendance
-- `/api/list-settings/*` - List configuration
-- `/api/reports/*` - Reports
-- `/api/messages/*` - Broadcast messages
+**Admin (Auth Required)**: `POST /api/auth/login`, `GET/POST/PUT/DELETE /api/caddies`, `PATCH /api/caddies/:id/status`, `POST /api/dispatch/bulk`, `GET/POST /api/lists`, `GET /api/attendance/*`, `GET /api/reports/*`
 
-## WebSocket Events
+## WebSocket
 
-### Events Emitted by Server
-| Event | Payload |
-|-------|---------|
-| `caddie:status_changed` | `{caddieId, name, status, listNumber, timestamp}` |
-| `caddie:added` | `{caddieId, name, listNumber, status, ...}` |
-| `caddie:updated` | `{caddieId, updates, timestamp}` |
-| `caddie:deleted` | `{caddieId, timestamp}` |
+**Emitted Events**: `caddie:status_changed`, `caddie:added`, `caddie:updated`, `caddie:deleted`, `caddie:dispatched`, `queue:updated`
 
-### Client Events (Public Users)
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `subscribe` | `{listNumbers: [1, 2, 3]}` | Join list rooms to receive updates |
-| `unsubscribe` | `{listNumbers: [1, 2, 3]}` | Leave list rooms |
-| `ping` | - | Connection health check |
-| `pong` | `{timestamp}` | Response to ping |
+**Payload**: `{ event, data: {...}, timestamp }` - nested data for frontend compatibility
 
-### Rooms
-- `list-1` - Primera category updates
-- `list-2` - Segunda category updates
-- `list-3` - Tercera category updates
+**Rooms**: `list-1` (Primera), `list-2` (Segunda), `list-3` (Tercera)
 
-### Authentication
-- **Public connections**: No token required. Can connect without authentication.
-- **Authenticated connections**: Include JWT token in `socket.handshake.auth.token` or query param.
-- **Public users**: Use `?lists=1,2,3` query param to auto-join rooms on connect, or use `subscribe` event after connect.
+**Client Events**: `subscribe` (join rooms), `unsubscribe` (leave rooms), `ping/pong` (health check)
+
+**Auth**: Public users connect without token. Use `?lists=1,2,3` query param or `subscribe` event.
 
 ## Git Commits
-`type(scope): description` - `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+Format: `type(scope): description` - Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+
+Examples: `feat(caddies): add bulk dispatch endpoint` | `fix(auth): resolve token expiration issue`
 
 ## Common Issues
-1. **CORS**: Add origin to `CORS_ORIGINS`
-2. **JWT**: Ensure `JWT_EXPIRES_IN=24h` (not quoted)
-3. **PostgreSQL**: `DATABASE_URL` must be valid PostgreSQL connection string
-4. **Prisma**: Run `npx prisma generate` after schema changes
-5. **Tests**: Use `--testNamePattern` to filter by test name
-6. **ESM**: Always use `.js` extensions in imports
+1. **CORS** - Add origin to `CORS_ORIGINS` env var
+2. **JWT** - Ensure `JWT_EXPIRES_IN=24h` (no quotes)
+3. **PostgreSQL** - `DATABASE_URL` must be valid connection string
+4. **Prisma** - Run `npm run prisma:generate` after schema changes
+5. **Tests** - Use `--testNamePattern` to filter by test name
+6. **ESM** - Always use `.js` extensions in imports
+7. **WebSocket** - Check CORS allows WebSocket connections
