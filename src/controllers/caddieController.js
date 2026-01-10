@@ -408,6 +408,15 @@ export const createCaddie = async (req, res) => {
       });
     }
 
+    if (weekendPriority !== undefined) {
+      if (weekendPriority < 1 || weekendPriority > 999 || !Number.isInteger(weekendPriority)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Weekend priority must be between 1 and 999' },
+        });
+      }
+    }
+
     // Check for duplicate number within same category
     const existing = await prisma.caddie.findFirst({ 
       where: { number, category } 
@@ -419,6 +428,20 @@ export const createCaddie = async (req, res) => {
       });
     }
 
+    // Auto-calculate weekendPriority if not provided
+    let calculatedWeekendPriority = weekendPriority;
+    if (!calculatedWeekendPriority) {
+      // Find the highest weekendPriority in the category
+      const lastCaddieInCategory = await prisma.caddie.findFirst({
+        where: { category },
+        orderBy: { weekendPriority: 'desc' },
+        select: { weekendPriority: true }
+      });
+
+      // New caddie becomes last in category
+      calculatedWeekendPriority = (lastCaddieInCategory?.weekendPriority || 0) + 1;
+    }
+
     // Create caddie
     const caddie = await prisma.caddie.create({
       data: {
@@ -427,7 +450,7 @@ export const createCaddie = async (req, res) => {
         category,
         location,
         role,
-        weekendPriority: weekendPriority || number,
+        weekendPriority: calculatedWeekendPriority,
         status: 'AVAILABLE',
         isActive: true,
       },
@@ -529,10 +552,36 @@ export const updateCaddie = async (req, res) => {
       }
       data.number = updates.number;
     }
-    if (updates.category !== undefined) data.category = updates.category;
+    if (updates.category !== undefined) {
+      data.category = updates.category;
+
+      // Auto-calculate weekendPriority when changing category
+      // Caddie becomes last in new category
+      const lastCaddieInCategory = await prisma.caddie.findFirst({
+        where: { category: updates.category },
+        orderBy: { weekendPriority: 'desc' },
+        select: { weekendPriority: true }
+      });
+
+      const newPriority = (lastCaddieInCategory?.weekendPriority || 0) + 1;
+
+      // Only auto-calculate if weekendPriority is not being explicitly set
+      if (updates.weekendPriority === undefined) {
+        data.weekendPriority = newPriority;
+      }
+    }
+
     if (updates.location !== undefined) data.location = updates.location;
     if (updates.role !== undefined) data.role = updates.role;
-    if (updates.weekendPriority !== undefined) data.weekendPriority = updates.weekendPriority;
+    if (updates.weekendPriority !== undefined) {
+      if (updates.weekendPriority < 1 || updates.weekendPriority > 999 || !Number.isInteger(updates.weekendPriority)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Weekend priority must be between 1 and 999' },
+        });
+      }
+      data.weekendPriority = updates.weekendPriority;
+    }
     if (updates.isActive !== undefined) data.isActive = updates.isActive;
     if (updates.status !== undefined) {
       if (!VALID_STATUSES.includes(updates.status)) {
