@@ -144,6 +144,23 @@ export function emitMessageBroadcast(message) {
 }
 
 /**
+ * Emit daily attendance updated event
+ * @param {object} attendance - Attendance object
+ */
+export function emitDailyAttendanceUpdated(attendance) {
+  emitToAll('daily_attendance:updated', {
+    id: attendance.id,
+    caddieId: attendance.caddieId,
+    caddie: attendance.caddie,
+    date: attendance.date,
+    status: attendance.status,
+    arrivalTime: attendance.arrivalTime,
+    servicesCount: attendance.servicesCount,
+    timestamp: Date.now(),
+  });
+}
+
+/**
  * Check if WebSocket is connected
  * @returns {boolean} True if WebSocket is initialized
  */
@@ -160,5 +177,6 @@ export default {
   emitQueueUpdated,
   emitListUpdated,
   emitMessageBroadcast,
+  emitDailyAttendanceUpdated,
   isWebSocketConnected,
 };

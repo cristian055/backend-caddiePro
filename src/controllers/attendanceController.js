@@ -1,190 +1,199 @@
 import prisma from '../config/database.js';
+import { emitDailyAttendanceUpdated } from '../utils/websocketEmitter.js';
 
-export const getAllAttendance = async (req, res) => {
+const VALID_ATTENDANCE_STATUSES = ['PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'];
+
+export const createDailyAttendance = async (req, res) => {
   try {
-    const attendance = await prisma.attendance.findMany({
-      orderBy: { date: 'desc' },
-    });
-
-    res.json(attendance);
-  } catch (error) {
-    console.error('Get attendance error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getAttendanceById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const attendance = await prisma.attendance.findUnique({
-      where: { id },
-      include: { caddie: true },
-    });
-
-    if (!attendance) {
-      return res.status(404).json({ error: 'Attendance record not found' });
-    }
-
-    res.json(attendance);
-  } catch (error) {
-    console.error('Get attendance error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const createAttendance = async (req, res) => {
-  try {
-    const { caddieId, caddieName, listNumber, date, status } = req.body;
+    const { caddieId, date, status } = req.body;
 
     if (!caddieId || !date || !status) {
-      return res.status(400).json({ error: 'CaddieId, date, and status are required' });
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'caddieId, date, and status are required' }
+      });
     }
 
-    // Get caddie name if not provided
-    let name = caddieName;
-    let list = listNumber;
-    if (!name || !list) {
-      const caddie = await prisma.caddie.findUnique({ where: { id: caddieId } });
-      if (!caddie) {
-        return res.status(404).json({ error: 'Caddie not found' });
-      }
-      name = caddie.name;
-      list = caddie.listNumber;
+    if (!VALID_ATTENDANCE_STATUSES.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: `Status must be one of: ${VALID_ATTENDANCE_STATUSES.join(', ')}` }
+      });
     }
 
-    // Check if attendance already exists for this caddie on this date
-    // MongoDB doesn't support composite key syntax in findUnique, use findFirst instead
-    const existing = await prisma.attendance.findFirst({
+    const caddie = await prisma.caddie.findUnique({ where: { id: caddieId } });
+    if (!caddie) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Caddie not found' }
+      });
+    }
+
+    const dateStr = new Date(date).toISOString().split('T')[0];
+
+    const existing = await prisma.dailyAttendance.findUnique({
       where: {
-        caddieId: caddieId,
-        date: {
-          gte: new Date(date),
-          lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
-        },
-      },
+        caddieId_date: {
+          caddieId,
+          date: new Date(dateStr)
+        }
+      }
     });
 
+    let attendance;
     if (existing) {
-      return res.status(400).json({ error: 'Attendance already recorded for this caddie on this date' });
+      attendance = await prisma.dailyAttendance.update({
+        where: { id: existing.id },
+        data: {
+          status,
+          arrivalTime: (status === 'PRESENT' || status === 'LATE') ? new Date() : existing.arrivalTime
+        },
+        include: { caddie: true }
+      });
+    } else {
+      attendance = await prisma.dailyAttendance.create({
+        data: {
+          caddieId,
+          date: new Date(dateStr),
+          status,
+          arrivalTime: (status === 'PRESENT' || status === 'LATE') ? new Date() : null
+        },
+        include: { caddie: true }
+      });
     }
 
-    const attendance = await prisma.attendance.create({
-      data: {
-        caddieId,
-        caddieName: name,
-        listNumber: parseInt(list),
-        date: new Date(date),
-        status,
-        callTime: new Date(),
-        arrivalTime: status === 'Presente' || status === 'Llegó tarde' ? new Date() : null,
-      },
+    emitDailyAttendanceUpdated(attendance);
+
+    res.status(existing ? 200 : 201).json({
+      success: true,
+      data: attendance
     });
-
-    // Handle penalty for late arrival - move to end of queue
-    if (status === 'Llegó tarde') {
-      await moveCaddieToEndOfQueue(caddieId);
-    }
-
-    res.status(201).json(attendance);
   } catch (error) {
-    console.error('Create attendance error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Create daily attendance error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
   }
 };
 
-export const updateAttendance = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, arrivalTime, turnsCount, endTime } = req.body;
-
-    const attendance = await prisma.attendance.update({
-      where: { id },
-      data: {
-        ...(status && { status }),
-        ...(arrivalTime && { arrivalTime: new Date(arrivalTime) }),
-        ...(turnsCount !== undefined && { turnsCount }),
-        ...(endTime && { endTime: new Date(endTime) }),
-      },
-    });
-
-    res.json(attendance);
-  } catch (error) {
-    console.error('Update attendance error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getAttendanceByCaddie = async (req, res) => {
-  try {
-    const { caddieId } = req.params;
-
-    const attendance = await prisma.attendance.findMany({
-      where: { caddieId },
-      orderBy: { date: 'desc' },
-    });
-
-    res.json(attendance);
-  } catch (error) {
-    console.error('Get attendance by caddie error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getAttendanceByList = async (req, res) => {
-  try {
-    const { listNumber } = req.params;
-
-    const attendance = await prisma.attendance.findMany({
-      where: { listNumber: parseInt(listNumber) },
-      orderBy: { date: 'desc' },
-    });
-
-    res.json(attendance);
-  } catch (error) {
-    console.error('Get attendance by list error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export const getAttendanceByDate = async (req, res) => {
+export const getDailyAttendance = async (req, res) => {
   try {
     const { date } = req.params;
+    const dateStr = new Date(date).toISOString().split('T')[0];
 
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
-
-    const attendance = await prisma.attendance.findMany({
+    const attendance = await prisma.dailyAttendance.findMany({
       where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
+        date: new Date(dateStr)
       },
-      orderBy: { listNumber: 'asc' },
+      include: {
+        caddie: {
+          select: {
+            id: true,
+            name: true,
+            number: true,
+            category: true,
+            location: true
+          }
+        }
+      },
+      orderBy: { caddie: { number: 'asc' } }
     });
 
-    res.json(attendance);
+    res.json({
+      success: true,
+      data: {
+        date: dateStr,
+        attendance
+      }
+    });
   } catch (error) {
-    console.error('Get attendance by date error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Get daily attendance error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
   }
 };
 
-// Helper function to move caddie to end of queue
-async function moveCaddieToEndOfQueue(caddieId) {
-  const queue = await prisma.caddieQueue.findUnique({ where: { caddieId } });
-  if (!queue) return;
+export const getDailyAttendanceStats = async (req, res) => {
+  try {
+    const { date } = req.params;
+    const dateStr = new Date(date).toISOString().split('T')[0];
 
-  const lastQueue = await prisma.caddieQueue.findFirst({
-    where: { listNumber: queue.listNumber },
-    orderBy: { position: 'desc' },
-  });
+    const attendance = await prisma.dailyAttendance.findMany({
+      where: {
+        date: new Date(dateStr)
+      }
+    });
 
-  await prisma.caddieQueue.update({
-    where: { caddieId },
-    data: { position: lastQueue ? lastQueue.position + 1 : 1 },
-  });
-}
+    const stats = {
+      total: attendance.length,
+      present: attendance.filter(a => a.status === 'PRESENT').length,
+      late: attendance.filter(a => a.status === 'LATE').length,
+      absent: attendance.filter(a => a.status === 'ABSENT').length,
+      onLeave: attendance.filter(a => a.status === 'ON_LEAVE').length,
+      worked: attendance.filter(a => a.servicesCount > 0).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        date: dateStr,
+        ...stats
+      }
+    });
+  } catch (error) {
+    console.error('Get daily attendance stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+};
+
+export const updateDailyAttendance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, servicesCount } = req.body;
+
+    const existing = await prisma.dailyAttendance.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Attendance record not found' }
+      });
+    }
+
+    const data = {};
+    if (status !== undefined) {
+      if (!VALID_ATTENDANCE_STATUSES.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: `Status must be one of: ${VALID_ATTENDANCE_STATUSES.join(', ')}` }
+        });
+      }
+      data.status = status;
+    }
+    if (servicesCount !== undefined) data.servicesCount = servicesCount;
+
+    const attendance = await prisma.dailyAttendance.update({
+      where: { id },
+      data,
+      include: { caddie: true }
+    });
+
+    emitDailyAttendanceUpdated(attendance);
+
+    res.json({
+      success: true,
+      data: attendance
+    });
+  } catch (error) {
+    console.error('Update daily attendance error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+};

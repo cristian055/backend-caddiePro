@@ -138,7 +138,7 @@ export const updateList = async (req, res) => {
 };
 ```
 
-**Emitted Events**: `caddie:status_changed`, `caddie:added`, `caddie:updated`, `caddie:deleted`, `caddie:dispatched`, `queue:updated`, `list:updated`
+**Emitted Events**: `caddie:status_changed`, `caddie:added`, `caddie:updated`, `caddie:deleted`, `caddie:dispatched`, `queue:updated`, `list:updated`, `daily_attendance:updated`
 
 **Payload**: `{ event, data: {...}, timestamp }` - nested data for frontend compatibility
 
@@ -166,7 +166,25 @@ PORT=3000
 
 **Public (No Auth)**: `GET /api/public/queue`, `GET /api/public/lists`, `GET /api/public/lists/:listNumber`
 
-**Admin (Auth Required)**: `POST /api/auth/login`, `GET/POST/PUT/DELETE /api/caddies`, `PATCH /api/caddies/:id/status`, `POST /api/dispatch/bulk`, `GET/POST /api/lists`, `GET /api/attendance/*`, `GET /api/reports/*`
+**Admin (Auth Required)**: `POST /api/auth/login`, `GET/POST/PUT/DELETE /api/caddies`, `PATCH /api/caddies/:id/status`, `POST /api/dispatch/bulk`, `GET/POST /api/lists`, `GET/POST /api/attendance/*`, `GET/POST /api/reports/*`
+
+### Daily Attendance Tracking
+
+**Database Model**: `DailyAttendance` - Tracks caddie attendance per day with status (PRESENT, LATE, ABSENT, ON_LEAVE)
+
+**Endpoints**:
+- `POST /api/attendance/daily` - Create/update daily attendance record (caddieId, date, status)
+- `GET /api/attendance/daily/:date` - Get all attendance records for a date
+- `GET /api/attendance/daily/:date/stats` - Get summary statistics (present, late, absent, onLeave, worked)
+- `PUT /api/attendance/daily/:id` - Update existing attendance record
+- `GET /api/reports/daily/:date/attendance` - Get detailed daily attendance report with stats
+- `POST /api/reports/close/:date` - Archive daily attendance to ServiceLog and close day
+
+**Status Flow**:
+1. Caddie status changes to `IN_PREP` → Create DailyAttendance with `PRESENT` status
+2. Caddie status changes to `ABSENT`/`ON_LEAVE`/`LATE` → Create DailyAttendance with corresponding status
+3. Caddie completes service (IN_PREP → IN_FIELD) → Increment `servicesCount` in DailyAttendance
+4. Close Day → Archive DailyAttendance to ServiceLog, reset counters
 
 ## Git Commits
 

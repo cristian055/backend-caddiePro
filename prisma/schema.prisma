@@ -50,10 +50,11 @@ model Caddie {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  availability     CaddieAvailability[] @relation("CaddieAvailability")
-  dispatchHistory  DispatchHistory[]    @relation("CaddieDispatch")
-  serviceLogs      ServiceLog[]         @relation("CaddieServiceLogs")
-  weeklyAssignments WeeklyAssignment[]  @relation("CaddieAssignments")
+  availability        CaddieAvailability[] @relation("CaddieAvailability")
+  dispatchHistory     DispatchHistory[]    @relation("CaddieDispatch")
+  serviceLogs         ServiceLog[]         @relation("CaddieServiceLogs")
+  weeklyAssignments   WeeklyAssignment[]  @relation("CaddieAssignments")
+  dailyAttendances    DailyAttendance[]   @relation("CaddieDailyAttendance")
 
   @@unique([number, category])
   @@map("caddies")
@@ -77,6 +78,25 @@ model CaddieAvailability {
 
   @@unique([caddieId, day])
   @@map("caddie_availability")
+}
+
+// ============================================
+// DAILY ATTENDANCE - Daily attendance tracking per caddie
+// ============================================
+model DailyAttendance {
+  id            String    @id @default(uuid())
+  caddieId      String    @map("caddie_id")
+  date          DateTime  @db.Date
+  status        String    // 'PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'
+  arrivalTime   DateTime? @map("arrival_time")
+  servicesCount Int       @default(0) @map("services_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  caddie Caddie @relation("CaddieDailyAttendance", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, date])
+  @@map("daily_attendance")
 }
 
 // ============================================

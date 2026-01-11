@@ -228,3 +228,122 @@ export const getRangeReport = async (req, res) => {
 };
 
 export const downloadCsvReport = downloadCsv;
+
+export const getDailyAttendanceReport = async (req, res) => {
+  try {
+    const { date } = req.params;
+    const dateStr = new Date(date).toISOString().split('T')[0];
+
+    const attendance = await prisma.dailyAttendance.findMany({
+      where: {
+        date: new Date(dateStr)
+      },
+      include: {
+        caddie: {
+          select: {
+            id: true,
+            name: true,
+            number: true,
+            category: true,
+            location: true
+          }
+        }
+      },
+      orderBy: { caddie: { number: 'asc' } }
+    });
+
+    const stats = {
+      worked: attendance.filter(a => a.servicesCount > 0).length,
+      absent: attendance.filter(a => a.status === 'ABSENT').length,
+      onLeave: attendance.filter(a => a.status === 'ON_LEAVE').length,
+      late: attendance.filter(a => a.status === 'LATE').length,
+      total: attendance.length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        date: dateStr,
+        stats,
+        attendance
+      }
+    });
+  } catch (error) {
+    console.error('Get daily attendance report error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+};
+
+export const closeDay = async (req, res) => {
+  try {
+    const { date } = req.params;
+    const dateStr = new Date(date).toISOString().split('T')[0];
+    const serviceDate = new Date(dateStr);
+
+    const attendance = await prisma.dailyAttendance.findMany({
+      where: {
+        date: serviceDate
+      },
+      include: {
+        caddie: true
+      }
+    });
+
+    let recordsProcessed = 0;
+    for (const record of attendance) {
+      // Find existing service log
+      const existingServiceLog = await prisma.serviceLog.findUnique({
+        where: {
+          caddieId_serviceDate: {
+            caddieId: record.caddieId,
+            serviceDate: serviceDate
+          }
+        }
+      });
+
+      if (existingServiceLog) {
+        // Update existing record
+        await prisma.serviceLog.update({
+          where: { id: existingServiceLog.id },
+          data: {
+            servicesCount: record.servicesCount,
+            absencesCount: record.status === 'ABSENT' ? 1 : 0,
+            leavesCount: record.status === 'ON_LEAVE' ? 1 : 0,
+            latesCount: record.status === 'LATE' ? 1 : 0
+          }
+        });
+      } else {
+        // Create new record
+        await prisma.serviceLog.create({
+          data: {
+            caddieId: record.caddieId,
+            serviceDate: serviceDate,
+            servicesCount: record.servicesCount,
+            absencesCount: record.status === 'ABSENT' ? 1 : 0,
+            leavesCount: record.status === 'ON_LEAVE' ? 1 : 0,
+            latesCount: record.status === 'LATE' ? 1 : 0
+          }
+        });
+      }
+      recordsProcessed++;
+    }
+
+    res.json({
+      success: true,
+      message: 'Day closed successfully',
+      data: {
+        date: dateStr,
+        recordsProcessed
+      }
+    });
+  } catch (error) {
+    console.error('Close day error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+    });
+  }
+};

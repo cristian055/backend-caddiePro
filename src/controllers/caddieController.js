@@ -1,5 +1,5 @@
 import prisma from '../config/database.js';
-import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged } from '../utils/websocketEmitter.js';
+import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged, emitDailyAttendanceUpdated } from '../utils/websocketEmitter.js';
 
 // Valid status values
 const VALID_STATUSES = ['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'LATE', 'ABSENT', 'ON_LEAVE'];
@@ -624,6 +624,44 @@ export const updateCaddie = async (req, res) => {
       include: { availability: true },
     });
 
+    // Create or update daily attendance record for attendance statuses
+    if (updates.status !== undefined && updates.status !== caddie.status) {
+      const attendanceStatuses = ['ABSENT', 'ON_LEAVE', 'LATE'];
+      if (attendanceStatuses.includes(updates.status)) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const existingAttendance = await prisma.dailyAttendance.findUnique({
+          where: {
+            caddieId_date: {
+              caddieId: id,
+              date: today
+            }
+          }
+        });
+
+        let attendance;
+        if (existingAttendance) {
+          attendance = await prisma.dailyAttendance.update({
+            where: { id: existingAttendance.id },
+            data: { status: updates.status, arrivalTime: updates.status === 'LATE' ? new Date() : existingAttendance.arrivalTime },
+            include: { caddie: true }
+          });
+        } else {
+          attendance = await prisma.dailyAttendance.create({
+            data: {
+              caddieId: id,
+              date: today,
+              status: updates.status,
+              arrivalTime: updates.status === 'LATE' ? new Date() : null
+            },
+            include: { caddie: true }
+          });
+        }
+        emitDailyAttendanceUpdated(attendance);
+      }
+    }
+
     // Emit general update event
     emitCaddieUpdated(id, updates, caddie.category);
     
@@ -754,18 +792,148 @@ export const updateCaddieStatus = async (req, res) => {
     } else if (status === 'LATE') {
       await prisma.caddie.update({
         where: { id },
-        data: { lateCount: { increment: 1 } },
+        data: { lateCount: { increment:1 } },
       });
     } else if (status === 'ON_LEAVE') {
       await prisma.caddie.update({
         where: { id },
-        data: { leaveCount: { increment: 1 } },
+        data: { leaveCount: { increment:1 } },
       });
     } else if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
       await prisma.caddie.update({
         where: { id },
-        data: { historyCount: { increment: 1 } },
+        data: { historyCount: { increment:1 } },
       });
+    }
+
+    // Update daily attendance services count when caddie completes a service
+    if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const existingAttendance = await prisma.dailyAttendance.findUnique({
+        where: {
+          caddieId_date: {
+            caddieId: id,
+            date: today
+          }
+        }
+      });
+      let attendance;
+      if (existingAttendance) {
+        attendance = await prisma.dailyAttendance.update({
+          where: { id: existingAttendance.id },
+          data: { servicesCount: { increment: 1 } },
+          include: { caddie: true }
+        });
+      } else {
+        attendance = await prisma.dailyAttendance.create({
+          data: {
+            caddieId: id,
+            date: today,
+            status: 'PRESENT',
+            arrivalTime: new Date(),
+            servicesCount: 1
+          },
+          include: { caddie: true }
+        });
+      }
+      emitDailyAttendanceUpdated(attendance);
+    }
+
+    // Create or update daily attendance record for attendance statuses
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Handle IN_PREP - create PRESENT attendance when caddie goes to work
+    if (status === 'IN_PREP') {
+      const existingAttendance = await prisma.dailyAttendance.findUnique({
+        where: {
+          caddieId_date: {
+            caddieId: id,
+            date: today
+          }
+        }
+      });
+
+      let attendance;
+      if (existingAttendance) {
+        attendance = await prisma.dailyAttendance.update({
+          where: { id: existingAttendance.id },
+          data: { status: 'PRESENT', arrivalTime: new Date() },
+          include: { caddie: true }
+        });
+      } else {
+        attendance = await prisma.dailyAttendance.create({
+          data: {
+            caddieId: id,
+            date: today,
+            status: 'PRESENT',
+            arrivalTime: new Date()
+          },
+          include: { caddie: true }
+        });
+      }
+      emitDailyAttendanceUpdated(attendance);
+    }
+
+    const attendanceStatuses = ['ABSENT', 'ON_LEAVE'];
+    if (attendanceStatuses.includes(status)) {
+      const existingAttendance = await prisma.dailyAttendance.findUnique({
+        where: {
+          caddieId_date: {
+            caddieId: id,
+            date: today
+          }
+        }
+      });
+
+      let attendance;
+      if (existingAttendance) {
+        attendance = await prisma.dailyAttendance.update({
+          where: { id: existingAttendance.id },
+          data: { status },
+          include: { caddie: true }
+        });
+      } else {
+        attendance = await prisma.dailyAttendance.create({
+          data: {
+            caddieId: id,
+            date: today,
+            status
+          },
+          include: { caddie: true }
+        });
+      }
+      emitDailyAttendanceUpdated(attendance);
+    } else if (status === 'LATE') {
+      const existingAttendance = await prisma.dailyAttendance.findUnique({
+        where: {
+          caddieId_date: {
+            caddieId: id,
+            date: today
+          }
+        }
+      });
+
+      let attendance;
+      if (existingAttendance) {
+        attendance = await prisma.dailyAttendance.update({
+          where: { id: existingAttendance.id },
+          data: { status: 'LATE', arrivalTime: new Date() },
+          include: { caddie: true }
+        });
+      } else {
+        attendance = await prisma.dailyAttendance.create({
+          data: {
+            caddieId: id,
+            date: today,
+            status: 'LATE',
+            arrivalTime: new Date()
+          },
+          include: { caddie: true }
+        });
+      }
+      emitDailyAttendanceUpdated(attendance);
     }
 
     emitCaddieStatusChanged(updatedCaddie, previousStatus);
