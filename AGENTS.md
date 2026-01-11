@@ -170,7 +170,23 @@ PORT=3000
 
 ### Daily Attendance Tracking
 
-**Database Model**: `DailyAttendance` - Tracks caddie attendance per day with status (PRESENT, LATE, ABSENT, ON_LEAVE)
+**Purpose**: Track caddie daily attendance (present, absent, on leave, late) and display statistics in Reports view.
+
+**Database Model**: `DailyAttendance` - Tracks caddie attendance per day
+```javascript
+model DailyAttendance {
+  id            String    @id
+  caddieId      String
+  date          DateTime  @db.Date
+  status        String    // 'PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'
+  arrivalTime   DateTime?
+  servicesCount Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([caddieId, date])
+}
+```
 
 **Endpoints**:
 - `POST /api/attendance/daily` - Create/update daily attendance record (caddieId, date, status)
@@ -180,11 +196,61 @@ PORT=3000
 - `GET /api/reports/daily/:date/attendance` - Get detailed daily attendance report with stats
 - `POST /api/reports/close/:date` - Archive daily attendance to ServiceLog and close day
 
-**Status Flow**:
-1. Caddie status changes to `IN_PREP` → Create DailyAttendance with `PRESENT` status
-2. Caddie status changes to `ABSENT`/`ON_LEAVE`/`LATE` → Create DailyAttendance with corresponding status
-3. Caddie completes service (IN_PREP → IN_FIELD) → Increment `servicesCount` in DailyAttendance
-4. Close Day → Archive DailyAttendance to ServiceLog, reset counters
+**Implementation Details**:
+1. **Automatic Creation**: Attendance records are auto-created when caddie status changes in:
+   - `caddieController.js` - `updateCaddie` and `updateCaddieStatus` functions
+   - Validates status and creates `DailyAttendance` with appropriate `arrivalTime`
+
+2. **Status Flow**:
+   - Caddie clicks "Salir a Cargar" → Status `AVAILABLE` → `IN_PREP` → Create DailyAttendance(`PRESENT`)
+   - Caddie clicks "No vino" → Status `AVAILABLE` → `ABSENT` → Create DailyAttendance(`ABSENT`)
+   - Caddie clicks "Permiso" → Status `AVAILABLE` → `ON_LEAVE` → Create DailyAttendance(`ON_LEAVE`)
+   - Caddie clicks "Tarde" → Status `AVAILABLE` → `LATE` → Create DailyAttendance(`LATE`)
+   - Caddie completes service (IN_PREP → IN_FIELD) → Increment `servicesCount` in DailyAttendance
+
+3. **WebSocket Events**:
+   - `daily_attendance:updated` - Emitted after creating/updating attendance
+   - Frontend listens in `Reports.tsx` for real-time updates
+
+4. **Close Day Process**:
+   - Archives DailyAttendance records to ServiceLog
+   - Resets daily counters
+   - Creates historical record for reporting
+
+**Response Format**:
+```javascript
+{
+  success: true,
+  data: {
+    id: "uuid",
+    caddieId: "caddie-uuid",
+    caddie: { id, name, number, category, location },
+    date: "2024-01-11T00:00:00.000Z",
+    status: "PRESENT",
+    arrivalTime: "2024-01-11T08:30:00.000Z",
+    servicesCount: 2
+  }
+}
+```
+
+**Stats Summary**:
+```javascript
+{
+  date: "2024-01-11",
+  total: 10,
+  present: 5,
+  late: 1,
+  absent: 2,
+  onLeave: 2,
+  worked: 6  // servicesCount > 0
+}
+```
+
+**Important Notes**:
+- Use explicit `findUnique` → `update`/`create` instead of `upsert` for composite keys (avoids SQL issues)
+- Always emit WebSocket events after database changes
+- Set `arrivalTime` for PRESENT and LATE statuses
+- Archive to ServiceLog when closing day to maintain historical records
 
 ## Git Commits
 
