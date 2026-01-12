@@ -20,7 +20,6 @@ export async function setupTestDatabase() {
   const hashedPassword = await bcrypt.hash('test123', 10);
   await prisma.user.create({
     data: {
-      id: 'test-admin-id',
       email: 'admin@test.com',
       passwordHash: hashedPassword,
       role: 'admin',
@@ -45,17 +44,16 @@ export async function setupTestDatabase() {
 
   // Create test caddies
   const testCaddies = [
-    { name: 'Test Caddie 1', number: 1, category: 'Primera', id: 'test-caddie-1' },
-    { name: 'Test Caddie 2', number: 2, category: 'Primera', id: 'test-caddie-2' },
-    { name: 'Test Caddie 3', number: 1, category: 'Segunda', id: 'test-caddie-3' },
-    { name: 'Test Caddie 4', number: 2, category: 'Segunda', id: 'test-caddie-4' },
-    { name: 'Test Caddie 5', number: 1, category: 'Tercera', id: 'test-caddie-5' },
+    { name: 'Test Caddie 1', number: 1, category: 'Primera' },
+    { name: 'Test Caddie 2', number: 2, category: 'Primera' },
+    { name: 'Test Caddie 3', number: 1, category: 'Segunda' },
+    { name: 'Test Caddie 4', number: 2, category: 'Segunda' },
+    { name: 'Test Caddie 5', number: 1, category: 'Tercera' },
   ];
 
   for (const caddie of testCaddies) {
     await prisma.caddie.create({
       data: {
-        id: caddie.id,
         name: caddie.name,
         number: caddie.number,
         category: caddie.category,
