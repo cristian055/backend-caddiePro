@@ -1,0 +1,365 @@
+// This is your Prisma schema file,
+// learn more about it in docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+enum UserRole {
+  ADMIN
+  OPERATOR
+}
+
+enum Location {
+  LLANOGRANDE
+  MEDELLIN
+}
+
+enum CaddieType {
+  GOLF
+  TENNIS
+}
+
+enum GolfCategory {
+  PRIMERA
+  SEGUNDA
+  TERCERA
+}
+
+enum TennisCategory {
+  PRIMERA
+  SEGUNDA
+  TERCERA
+}
+
+enum CaddieStatus {
+  AVAILABLE
+  IN_PREP
+  IN_FIELD
+  LATE
+  ABSENT
+  ON_LEAVE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum RangeType {
+  FULL
+  BEFORE
+  AFTER
+  BETWEEN
+}
+
+// ============================================
+// USERS - Authentication and user management
+// ============================================
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  location     Location
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  dispatchHistory DispatchHistory[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// ============================================
+// CADDIES - Master caddie data (maintained for backward compatibility)
+// ============================================
+model Caddie {
+  id                String    @id @default(uuid())
+  name              String
+  number            Int
+  status            CaddieStatus    @default("AVAILABLE")
+  isActive          Boolean   @default(true) @map("is_active")
+  type              CaddieType @default(GOLF)
+  category          String?   // 'Primera' | 'Segunda' | 'Tercera'
+  location          Location   @default(LLANOGRANDE)
+  role              String    // 'Golf' | 'Tennis' | 'Hybrid'
+  weekendPriority   Int       @default(0) @map("weekend_priority")
+  isSkippedNextWeek Boolean   @default(false) @map("is_skipped_next_week")
+  historyCount      Int       @default(0) @map("history_count")
+  absencesCount     Int       @default(0) @map("absences_count")
+  lateCount         Int       @default(0) @map("late_count")
+  leaveCount        Int       @default(0) @map("leave_count")
+  lastActionTime    DateTime? @map("last_action_time")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations - maintained for backward compatibility
+  availability        CaddieAvailability[]
+  dispatchHistory     DispatchHistory[]
+  serviceLogs         ServiceLog[]
+  weeklyAssignments   WeeklyAssignment[]
+  dailyAttendances    DailyAttendance[]
+  golfProfile        GolfCaddieProfile?
+  tennisProfile       TennisCaddieProfile?
+
+  @@unique([number, category])
+  @@map("caddies")
+}
+
+// ============================================
+// GOLF LISTS - Configuration for Golf lists by category and location
+// ============================================
+model GolfList {
+  id         String       @id @default(uuid())
+  name       String
+  category   GolfCategory
+  location   Location     @default(LLANOGRANDE)
+  rangeStart Int          @map("range_start")
+  rangeEnd   Int          @map("range_end")
+  isActive   Boolean      @default(true) @map("is_active")
+  orderType  OrderType     @default(ASC) @map("order_type")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  members         GolfCaddieProfile[]
+  dispatchHistory DispatchHistory[]
+
+  @@unique([category, location])
+  @@map("golf_lists")
+}
+
+// ============================================
+// TENNIS CADDIES - Simple structure for Tennis caddies
+// ============================================
+model TennisCaddie {
+  id        String   @id @default(uuid())
+  caddieId  String   @unique @map("caddie_id")
+  
+  // Basic info (denormalized from Caddie for performance)
+  name      String
+  number    Int
+  type      CaddieType @default(TENNIS)
+  location  Location  @default(MEDELLIN)
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  // Tennis-specific fields
+  courtPreference String?  @map("court_preference")
+  status      CaddieStatus @default("AVAILABLE")
+  lastAssignedAt  DateTime? @map("last_assigned_at")
+  
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  caddie      Caddie @relation(fields: [caddieId], references: [id], onDelete: Restrict)
+  
+  @@index([location, isActive])
+  @@map("tennis_caddies")
+}
+
+// ============================================
+// GOLF CADDIE PROFILES - Positions within Golf lists
+// ============================================
+model GolfCaddieProfile {
+  id          String   @id @default(uuid())
+  caddieId   String   @unique @map("caddie_id")
+  golfListId  String   @map("golf_list_id")
+  category    GolfCategory
+  position    String   // "1", "2", ..., "99" for easy reordering
+  
+  status      CaddieStatus @default("AVAILABLE")
+  priority    Int      @default(0)
+  skipNext    Boolean  @default(false) @map("skip_next")
+  
+  lastAssignedAt DateTime? @map("last_assigned_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  caddie Caddie      @relation(fields: [caddieId], references: [id], onDelete: Cascade)
+  golfList GolfList @relation("ListMembers", fields: [golfListId], references: [id], onDelete: Cascade)
+
+  @@unique([golfListId, position])
+  @@index([golfListId, status, category])
+  @@map("golf_caddie_profiles")
+}
+
+// ============================================
+// CADDIE AVAILABILITY - Availability by day
+// ============================================
+model CaddieAvailability {
+  id           String    @id @default(uuid())
+  caddieId     String    @map("caddie_id")
+  day          DayOfWeek
+  isAvailable  Boolean   @default(true) @map("is_available")
+  rangeType    RangeType?  @map("range_type")
+  rangeTime    String?   @map("range_time")
+  rangeEndTime String?   @map("range_end_time")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  caddie Caddie      @relation("CaddieAvailability", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, day])
+  @@map("caddie_availability")
+}
+
+// ============================================
+// DAILY ATTENDANCE - Daily attendance tracking (shared between Golf and Tennis)
+// ============================================
+model DailyAttendance {
+  id            String           @id @default(uuid())
+  caddieId      String           @map("caddie_id")
+  date          DateTime         @db.Date
+  status        CaddieStatus
+  arrivalTime   DateTime?        @map("arrival_time")
+  servicesCount Int              @default(0) @map("services_count")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  // Relations with both sport profiles (for future extension)
+  golfProfile  GolfCaddieProfile? @relation("GolfDailyAttendance", fields: [id], references: [golfProfileId], onDelete: Cascade)
+  tennisProfile TennisCaddieProfile? @relation("TennisDailyAttendance", fields: [id], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, date])
+  @@index([date, status])
+  @@map("daily_attendance")
+}
+
+// ============================================
+// WEEKLY SHIFTS - Shift configurations (shared between Golf and Tennis)
+// ============================================
+model WeeklyShift {
+  id        String   @id @default(uuid())
+  day       DayOfWeek
+  time      String   // HH:MM format
+  location  Location @default(LLANOGRANDE)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  requirements WeeklyShiftRequirement[]
+  assignments  WeeklyAssignment[]
+
+  @@index([day, location])
+  @@map("weekly_shifts")
+}
+
+// ============================================
+// WEEKLY SHIFT REQUIREMENTS - Caddie requirements per shift (Golf categories)
+// ============================================
+model WeeklyShiftRequirement {
+  id       String   @id @default(uuid())
+  shiftId  String   @map("shift_id")
+  category GolfCategory
+  count    Int
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  shift WeeklyShift @relation("ShiftRequirements", fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, category])
+  @@map("weekly_shift_requirements")
+}
+
+// ============================================
+// WEEKLY ASSIGNMENTS - Caddie assignments to shifts
+// ============================================
+model WeeklyAssignment {
+  id          String   @id @default(uuid())
+  shiftId     String   @map("shift_id")
+  caddieId   String   @map("caddie_id")
+  assignedAt   DateTime   @default(now()) @map("assigned_at")
+
+  shift WeeklyShift @relation("ShiftAssignments", fields: [shiftId], references: [id], onDelete: Cascade)
+  caddie Caddie   @relation("CaddieAssignments", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, caddieId])
+  @@map("weekly_assignments")
+}
+
+// ============================================
+// DISPATCH HISTORY - Audit log for dispatch operations
+// ============================================
+model DispatchHistory {
+  id             String   @id @default(uuid())
+  caddieId       String   @map("caddie_id")
+  previousStatus CaddieStatus @map("previous_status")
+  newStatus      CaddieStatus @map("new_status")
+  listId         String?  @map("list_id")
+  dispatchedBy   String?  @map("dispatched_by")
+  location       Location
+  dispatchedAt   DateTime   @default(now()) @map("dispatched_at")
+
+  caddie Caddie      @relation("CaddieDispatch", fields: [caddieId], references: [id], onDelete: Restrict)
+
+  @@index([caddieId, dispatchedAt])
+  @@map("dispatch_history")
+}
+
+// ============================================
+// SERVICE LOGS - Service statistics for reports (maintained for now, will be refactored later)
+// ============================================
+model ServiceLog {
+  id            String           @id @default(uuid())
+  caddieId      String           @map("caddie_id")
+  serviceDate   DateTime         @map("service_date") @db.Date
+  servicesCount Int              @default(0) @map("services_count")
+  absencesCount Int              @default(0) @map("absences_count")
+  leavesCount   Int              @default(0) @map("leaves_count")
+  latesCount    Int              @default(0) @map("lates_count")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  caddie Caddie      @relation("CaddieServiceLogs", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, serviceDate])
+  @@map("service_logs")
+}
+
+// ============================================
+// MESSAGES - Broadcast messages
+// ============================================
+model Message {
+  id             String        @id @default(uuid())
+  content        String
+  targetCategory GolfCategory? @map("target_category")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  read           Boolean       @default(false)
+
+  @@index([createdAt])
+  @@map("messages")
+}
+
+// ============================================
+// LEGACY TABLES - Will be removed in Phase 4
+// These are kept for backward compatibility during migration
+// ============================================
+
+model ListConfig {
+  id         String   @id @default(uuid())
+  name       String
+  orderType  String   @map("order_type")
+  rangeStart Int      @map("range_start")
+  rangeEnd   Int      @map("range_end")
+  category   String
+  location   String   @default("Llanogrande")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  dispatchHistory DispatchHistory[] @relation("ListDispatch")
+
+  @@map("list_configs") // Marked as legacy
+}
