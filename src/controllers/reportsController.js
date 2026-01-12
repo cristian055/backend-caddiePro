@@ -1,109 +1,26 @@
-import prisma from '../config/database.js';
-import { createObjectCsvWriter } from 'csv-writer';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import fs from 'fs';
+import { reportsService } from '../services/reportsService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/**
- * GET /reports/statistics
- * Get daily statistics
- */
 export const getStatistics = async (req, res) => {
   try {
     const { date } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
-    const dateStr = targetDate.toISOString().split('T')[0];
-
-    // Get aggregated stats from service logs for the date
-    const serviceLogs = await prisma.serviceLog.findMany({
-      where: {
-        serviceDate: new Date(dateStr),
-      },
-    });
-
-    const stats = serviceLogs.reduce(
-      (acc, log) => ({
-        totalServices: acc.totalServices + log.servicesCount,
-        totalAbsences: acc.totalAbsences + log.absencesCount,
-        totalLeaves: acc.totalLeaves + log.leavesCount,
-        totalLates: acc.totalLates + log.latesCount,
-      }),
-      { totalServices: 0, totalAbsences: 0, totalLeaves: 0, totalLates: 0 }
-    );
-
-    // If no service logs, get from caddie counts
-    if (serviceLogs.length === 0) {
-      const caddies = await prisma.caddie.findMany({
-        where: { isActive: true },
-        select: {
-          historyCount: true,
-          absencesCount: true,
-          leaveCount: true,
-          lateCount: true,
-        },
-      });
-
-      stats.totalServices = caddies.reduce((sum, c) => sum + c.historyCount, 0);
-      stats.totalAbsences = caddies.reduce((sum, c) => sum + c.absencesCount, 0);
-      stats.totalLeaves = caddies.reduce((sum, c) => sum + c.leaveCount, 0);
-      stats.totalLates = caddies.reduce((sum, c) => sum + c.lateCount, 0);
-    }
-
+    const stats = await reportsService.getStatistics(date);
     res.json({
       success: true,
-      data: {
-        date: dateStr,
-        ...stats,
-      },
+      data: stats,
     });
   } catch (error) {
     console.error('Get statistics error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message },
     });
   }
 };
 
-/**
- * GET /reports/incidents
- * Get caddies with incidents (absences, leaves, lates)
- */
 export const getIncidents = async (req, res) => {
   try {
     const { limit } = req.query;
-    const take = parseInt(limit) || 10;
-
-    const caddies = await prisma.caddie.findMany({
-      where: {
-        isActive: true,
-        OR: [
-          { absencesCount: { gt: 0 } },
-          { leaveCount: { gt: 0 } },
-          { lateCount: { gt: 0 } },
-        ],
-      },
-      orderBy: [
-        { absencesCount: 'desc' },
-        { lateCount: 'desc' },
-        { leaveCount: 'desc' },
-      ],
-      take,
-    });
-
-    const incidents = caddies.map(c => ({
-      id: c.id,
-      number: c.number,
-      name: c.name,
-      absencesCount: c.absencesCount,
-      leaveCount: c.leaveCount,
-      lateCount: c.lateCount,
-      total: c.absencesCount + c.leaveCount + c.lateCount,
-    }));
-
+    const incidents = await reportsService.getIncidents(limit);
     res.json({
       success: true,
       data: {
@@ -114,82 +31,28 @@ export const getIncidents = async (req, res) => {
     console.error('Get incidents error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message },
     });
   }
 };
 
-/**
- * GET /reports/csv
- * Download daily report as CSV
- */
 export const downloadCsv = async (req, res) => {
   try {
     const { date } = req.query;
-    const targetDate = date || new Date().toISOString().split('T')[0];
-
-    const caddies = await prisma.caddie.findMany({
-      where: { isActive: true },
-      orderBy: [{ number: 'asc' }],
-    });
-
-    const filename = `report_${targetDate}.csv`;
-    const tmpDir = join(__dirname, '../../tmp');
-    
-    // Ensure tmp directory exists
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
-    
-    const filepath = join(tmpDir, filename);
-
-    const csvWriter = createObjectCsvWriter({
-      path: filepath,
-      header: [
-        { id: 'number', title: 'Number' },
-        { id: 'name', title: 'Name' },
-        { id: 'category', title: 'Category' },
-        { id: 'status', title: 'Current Status' },
-        { id: 'historyCount', title: 'Today Services' },
-        { id: 'absencesCount', title: 'Absences' },
-        { id: 'leaveCount', title: 'Leaves' },
-        { id: 'lateCount', title: 'Delays' },
-      ],
-    });
-
-    const records = caddies.map(c => ({
-      number: c.number,
-      name: c.name,
-      category: c.category || '',
-      status: c.status,
-      historyCount: c.historyCount,
-      absencesCount: c.absencesCount,
-      leaveCount: c.leaveCount,
-      lateCount: c.lateCount,
-    }));
-
-    await csvWriter.writeRecords(records);
-
-    res.download(filepath, filename, (err) => {
-      if (err) {
-        console.error('Download error:', err);
-      }
-      // Clean up file after download
-      fs.unlink(filepath, () => {});
+    const { filepath } = await reportsService.downloadCsv(date);
+    res.download(filepath, `report_${date || new Date().toISOString().split('T')[0]}.csv`, (err) => {
+      if (err) console.error('Download error:', err);
     });
   } catch (error) {
     console.error('Download CSV error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message },
     });
   }
 };
 
-// ============================================
 // Legacy support functions
-// ============================================
-
 export const getDailyReport = async (req, res) => {
   const { date } = req.params;
   req.query.date = date;
@@ -199,30 +62,16 @@ export const getDailyReport = async (req, res) => {
 export const getRangeReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.params;
-
-    const serviceLogs = await prisma.serviceLog.findMany({
-      where: {
-        serviceDate: {
-          gte: new Date(startDate),
-          lte: new Date(endDate),
-        },
-      },
-      orderBy: { serviceDate: 'asc' },
-    });
-
+    const result = await reportsService.getRangeReport(startDate, endDate);
     res.json({
       success: true,
-      data: {
-        startDate,
-        endDate,
-        records: serviceLogs,
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Get range report error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message },
     });
   }
 };
@@ -232,47 +81,16 @@ export const downloadCsvReport = downloadCsv;
 export const getDailyAttendanceReport = async (req, res) => {
   try {
     const { date } = req.params;
-    const dateStr = new Date(date).toISOString().split('T')[0];
-
-    const attendance = await prisma.dailyAttendance.findMany({
-      where: {
-        date: new Date(dateStr)
-      },
-      include: {
-        caddie: {
-          select: {
-            id: true,
-            name: true,
-            number: true,
-            category: true,
-            location: true
-          }
-        }
-      },
-      orderBy: { caddie: { number: 'asc' } }
-    });
-
-    const stats = {
-      worked: attendance.filter(a => a.servicesCount > 0).length,
-      absent: attendance.filter(a => a.status === 'ABSENT').length,
-      onLeave: attendance.filter(a => a.status === 'ON_LEAVE').length,
-      late: attendance.filter(a => a.status === 'LATE').length,
-      total: attendance.length
-    };
-
+    const result = await reportsService.getDailyAttendanceReport(date);
     res.json({
       success: true,
-      data: {
-        date: dateStr,
-        stats,
-        attendance
-      }
+      data: result
     });
   } catch (error) {
     console.error('Get daily attendance report error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+      error: { code: 'INTERNAL_ERROR', message: error.message }
     });
   }
 };
@@ -280,70 +98,16 @@ export const getDailyAttendanceReport = async (req, res) => {
 export const closeDay = async (req, res) => {
   try {
     const { date } = req.params;
-    const dateStr = new Date(date).toISOString().split('T')[0];
-    const serviceDate = new Date(dateStr);
-
-    const attendance = await prisma.dailyAttendance.findMany({
-      where: {
-        date: serviceDate
-      },
-      include: {
-        caddie: true
-      }
-    });
-
-    let recordsProcessed = 0;
-    for (const record of attendance) {
-      // Find existing service log
-      const existingServiceLog = await prisma.serviceLog.findUnique({
-        where: {
-          caddieId_serviceDate: {
-            caddieId: record.caddieId,
-            serviceDate: serviceDate
-          }
-        }
-      });
-
-      if (existingServiceLog) {
-        // Update existing record
-        await prisma.serviceLog.update({
-          where: { id: existingServiceLog.id },
-          data: {
-            servicesCount: record.servicesCount,
-            absencesCount: record.status === 'ABSENT' ? 1 : 0,
-            leavesCount: record.status === 'ON_LEAVE' ? 1 : 0,
-            latesCount: record.status === 'LATE' ? 1 : 0
-          }
-        });
-      } else {
-        // Create new record
-        await prisma.serviceLog.create({
-          data: {
-            caddieId: record.caddieId,
-            serviceDate: serviceDate,
-            servicesCount: record.servicesCount,
-            absencesCount: record.status === 'ABSENT' ? 1 : 0,
-            leavesCount: record.status === 'ON_LEAVE' ? 1 : 0,
-            latesCount: record.status === 'LATE' ? 1 : 0
-          }
-        });
-      }
-      recordsProcessed++;
-    }
-
+    const result = await reportsService.closeDay(date);
     res.json({
       success: true,
-      message: 'Day closed successfully',
-      data: {
-        date: dateStr,
-        recordsProcessed
-      }
+      data: result
     });
   } catch (error) {
     console.error('Close day error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
+      error: { code: 'INTERNAL_ERROR', message: error.message }
     });
   }
 };

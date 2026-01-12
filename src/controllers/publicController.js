@@ -1,14 +1,4 @@
-import prisma from '../config/database.js';
-
-const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const VALID_CATEGORIES = ['Primera', 'Segunda', 'Tercera'];
-
-// Map list numbers to categories
-const LIST_TO_CATEGORY = {
-  '1': 'Primera',
-  '2': 'Segunda',
-  '3': 'Tercera',
-};
+import { publicService } from '../services/publicService.js';
 
 /**
  * GET /public/queue
@@ -16,77 +6,16 @@ const LIST_TO_CATEGORY = {
  */
 export const getPublicQueue = async (req, res) => {
   try {
-    // Get list configurations
-    const listConfigs = await prisma.listConfig.findMany();
-
-    // Build queue for each category
-    const queue = {
-      Primera: [],
-      Segunda: [],
-      Tercera: [],
-    };
-
-    for (const config of listConfigs) {
-      const caddies = await prisma.caddie.findMany({
-        where: {
-          isActive: true,
-          category: config.category,
-          status: { in: ['AVAILABLE', 'LATE'] },
-          number: {
-            gte: config.rangeStart,
-            lte: config.rangeEnd,
-          },
-        },
-        orderBy: getOrderBy(config.orderType),
-        take: 5, // Return top 5 per category
-      });
-
-      queue[config.category] = caddies.map(c => ({
-        id: c.id,
-        name: c.name,
-        number: c.number,
-        status: c.status,
-        category: c.category,
-        weekendPriority: c.weekendPriority,
-      }));
-    }
-
-    // If no configs exist, get caddies by default order
-    for (const category of VALID_CATEGORIES) {
-      if (queue[category].length === 0) {
-        const caddies = await prisma.caddie.findMany({
-          where: {
-            isActive: true,
-            category,
-            status: { in: ['AVAILABLE', 'LATE'] },
-          },
-          orderBy: [{ number: 'asc' }],
-          take: 5,
-        });
-
-        queue[category] = caddies.map(c => ({
-          id: c.id,
-          name: c.name,
-          number: c.number,
-          status: c.status,
-          category: c.category,
-          weekendPriority: c.weekendPriority,
-        }));
-      }
-    }
-
+    const queue = await publicService.getPublicQueue();
     res.json({
       success: true,
-      data: {
-        ...queue,
-        lastUpdate: new Date().toISOString(),
-      },
+      data: queue,
     });
   } catch (error) {
     console.error('Get public queue error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message || 'Internal server error' },
     });
   }
 };
@@ -98,56 +27,16 @@ export const getPublicQueue = async (req, res) => {
 export const getPublicCaddies = async (req, res) => {
   try {
     const { status, location } = req.query;
-
-    // Build where clause
-    const where = {
-      isActive: true,
-    };
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (location) {
-      where.location = location;
-    }
-
-    // Get caddies by category
-    const caddiesByCategory = {};
-
-    for (const category of VALID_CATEGORIES) {
-      const caddies = await prisma.caddie.findMany({
-        where: {
-          ...where,
-          category,
-        },
-        orderBy: [{ number: 'asc' }],
-      });
-
-      caddiesByCategory[category] = caddies.map(c => ({
-        id: c.id,
-        name: c.name,
-        number: c.number,
-        status: c.status,
-        category: c.category,
-        weekendPriority: c.weekendPriority,
-        location: c.location,
-        role: c.role,
-      }));
-    }
-
+    const result = await publicService.getPublicCaddies({ status, location });
     res.json({
       success: true,
-      data: {
-        ...caddiesByCategory,
-        lastUpdate: new Date().toISOString(),
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Get public caddies error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message || 'Internal server error' },
     });
   }
 };
@@ -160,56 +49,20 @@ export const getPublicCaddiesByList = async (req, res) => {
   try {
     const { listNumber } = req.params;
     const { status } = req.query;
-
-    // Validate list number
-    if (!['1', '2', '3'].includes(listNumber)) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'Invalid list number. Must be 1, 2, or 3' },
-      });
-    }
-
-    const category = LIST_TO_CATEGORY[listNumber];
-
-    // Build where clause
-    const where = {
-      isActive: true,
-      category,
-    };
-
-    if (status) {
-      where.status = status;
-    }
-
-    // Get caddies for this list
-    const caddies = await prisma.caddie.findMany({
-      where,
-      orderBy: [{ number: 'asc' }],
-    });
-
+    const result = await publicService.getPublicCaddiesByList(listNumber, { status });
     res.json({
       success: true,
-      data: {
-        listNumber: parseInt(listNumber),
-        category,
-        caddies: caddies.map(c => ({
-          id: c.id,
-          name: c.name,
-          number: c.number,
-          status: c.status,
-          category: c.category,
-          weekendPriority: c.weekendPriority,
-          location: c.location,
-          role: c.role,
-        })),
-        lastUpdate: new Date().toISOString(),
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Get public caddies by list error:', error);
-    res.status(500).json({
+    const statusCode = error.message.includes('list number') ? 400 : 500;
+    res.status(statusCode).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: {
+        code: statusCode === 400 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR',
+        message: error.message || 'Internal server error'
+      },
     });
   }
 };
@@ -221,66 +74,16 @@ export const getPublicCaddiesByList = async (req, res) => {
 export const getPublicWeekly = async (req, res) => {
   try {
     const { day, location } = req.query;
-
-    const shiftWhere = {};
-    if (day && VALID_DAYS.includes(day)) shiftWhere.day = day;
-    if (location) shiftWhere.location = location;
-
-    const shifts = await prisma.weeklyShift.findMany({
-      where: shiftWhere,
-      include: {
-        requirements: true,
-        assignments: true,
-      },
-      orderBy: [{ day: 'asc' }, { time: 'asc' }],
-    });
-
+    const result = await publicService.getPublicWeekly({ day, location });
     res.json({
       success: true,
-      data: {
-        day: day || 'all',
-        shifts: shifts.map(s => ({
-          id: s.id,
-          day: s.day,
-          time: s.time,
-          location: s.location,
-          requirements: s.requirements.map(r => ({
-            category: r.category,
-            count: r.count,
-          })),
-        })),
-        assignments: shifts.flatMap(s =>
-          s.assignments.map(a => ({
-            shiftId: a.shiftId,
-            caddieId: a.caddieId,
-            caddieName: a.caddieName,
-            caddieNumber: a.caddieNumber,
-            category: a.category,
-            time: s.time,
-            day: s.day,
-          }))
-        ),
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Get public weekly error:', error);
     res.status(500).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+      error: { code: 'INTERNAL_ERROR', message: error.message || 'Internal server error' },
     });
   }
 };
-
-// Helper function to get order by based on order type
-function getOrderBy(orderType) {
-  switch (orderType) {
-    case 'DESC':
-      return [{ number: 'desc' }];
-    case 'RANDOM':
-    case 'MANUAL':
-      return [{ weekendPriority: 'asc' }];
-    case 'ASC':
-    default:
-      return [{ number: 'asc' }];
-  }
-}
