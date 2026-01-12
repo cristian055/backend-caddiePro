@@ -35,8 +35,10 @@ npm run install:all                 # Install + generate + push + seed
 ```
 src/
 ├── config/         # database.js, websocket.js
-├── controllers/    # Business logic (e.g., caddieController.js)
+├── controllers/    # HTTP request handlers (lightweight)
 ├── middleware/     # auth.js
+├── services/       # Business logic + Prisma operations
+├── validators/     # Input validation utilities
 ├── routes/         # Express routes (e.g., caddie.js)
 ├── utils/          # jwt.js, password.js, websocketEmitter.js
 └── server.js       # Entry point
@@ -117,6 +119,30 @@ await prisma.$transaction([
   prisma.caddie.update({ where: { id }, data: { status } }),
   prisma.dispatchHistory.create({ data: { caddieId, previousStatus, newStatus } })
 ]);
+```
+
+## Service Layer Pattern
+
+**Controllers**: Handle HTTP request/response only
+- Validate request data
+- Call service methods
+- Emit WebSocket events
+- Return formatted responses
+
+**Services**: Handle business logic and database operations
+- Complex business logic
+- Prisma queries
+- Transactions
+- Data transformations
+
+**Validators**: Centralized input validation
+- Valid value sets (statuses, categories, etc.)
+- Validation utilities
+- Reusable across services
+
+**Example flow**:
+```
+Request → Controller → Validator → Service → Prisma → Response
 ```
 
 ## WebSocket Integration
