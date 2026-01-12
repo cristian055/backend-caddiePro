@@ -5,11 +5,12 @@ import { setupTestDatabase, cleanupTestDatabase, getAuthToken } from './utils/te
 
 describe('Caddies Endpoints', () => {
   let authToken;
-  let testCaddieId;
+  let createdCaddies;
 
   beforeAll(async () => {
-    await setupTestDatabase();
+    const result = await setupTestDatabase();
     authToken = await getAuthToken(request(app));
+    createdCaddies = result.createdCaddies;
   });
 
   afterAll(async () => {
@@ -67,7 +68,7 @@ describe('Caddies Endpoints', () => {
   describe('GET /api/caddies/:id', () => {
     test('should get single caddie by ID', async () => {
       const response = await request(app)
-        .get('/api/caddies/test-caddie-1')
+        .get(`/api/caddies/${createdCaddies[0].id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);
@@ -90,6 +91,8 @@ describe('Caddies Endpoints', () => {
   });
 
   describe('POST /api/caddies', () => {
+    let newCaddieId;
+
     test('should create new caddie with authentication', async () => {
       const newCaddie = {
         name: 'New Test Caddie',
@@ -111,7 +114,7 @@ describe('Caddies Endpoints', () => {
       expect(response.body.data.category).toBe(newCaddie.category);
       expect(response.body.data.number).toBe(newCaddie.number);
 
-      testCaddieId = response.body.data.id;
+      newCaddieId = response.body.data.id;
     });
 
     test('should fail to create caddie without authentication', async () => {
@@ -129,19 +132,29 @@ describe('Caddies Endpoints', () => {
     });
 
     test('should fail with missing required fields', async () => {
+      const newCaddie = { name: 'No Category' };
+
       const response = await request(app)
         .post('/api/caddies')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'No Category' });
+        .send(newCaddie);
 
       expect(response.status).toBe(400);
     });
 
     test('should fail with invalid category', async () => {
+      const newCaddie = {
+        name: 'Invalid Category',
+        number: 90,
+        category: 'InvalidCategory',
+        location: 'Llanogrande',
+        role: 'Golf',
+      };
+
       const response = await request(app)
         .post('/api/caddies')
         .set('Authorization', `Bearer ${authToken}`)
-        .send({ name: 'Invalid Category', number: 90, category: 'InvalidCategory', location: 'Llanogrande', role: 'Golf' });
+        .send(newCaddie);
 
       expect(response.status).toBe(400);
     });
@@ -154,7 +167,7 @@ describe('Caddies Endpoints', () => {
       };
 
       const response = await request(app)
-        .put(`/api/caddies/${testCaddieId}`)
+        .put(`/api/caddies/${createdCaddies[0].id}`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ updates });
 
@@ -165,7 +178,7 @@ describe('Caddies Endpoints', () => {
 
     test('should fail to update without authentication', async () => {
       const response = await request(app)
-        .put(`/api/caddies/${testCaddieId}`)
+        .put(`/api/caddies/${createdCaddies[0].id}`)
         .send({ updates: { name: 'Should Fail' } });
 
       expect(response.status).toBe(401);
@@ -175,7 +188,7 @@ describe('Caddies Endpoints', () => {
   describe('PATCH /api/caddies/:id/status', () => {
     test('should update caddie status', async () => {
       const response = await request(app)
-        .patch(`/api/caddies/${testCaddieId}/status`)
+        .patch(`/api/caddies/${createdCaddies[0].id}/status`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'IN_PREP' });
 
@@ -186,7 +199,7 @@ describe('Caddies Endpoints', () => {
 
     test('should fail with invalid status', async () => {
       const response = await request(app)
-        .patch(`/api/caddies/${testCaddieId}/status`)
+        .patch(`/api/caddies/${createdCaddies[0].id}/status`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ status: 'INVALID_STATUS' });
 
@@ -197,7 +210,7 @@ describe('Caddies Endpoints', () => {
   describe('DELETE /api/caddies/:id', () => {
     test('should deactivate caddie with authentication (soft delete)', async () => {
       const response = await request(app)
-        .delete(`/api/caddies/${testCaddieId}`)
+        .delete(`/api/caddies/${createdCaddies[0].id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);
@@ -206,14 +219,14 @@ describe('Caddies Endpoints', () => {
     });
 
     test('should fail to delete without authentication', async () => {
-      const response = await request(app).delete('/api/caddies/test-caddie-1');
+      const response = await request(app).delete(`/api/caddies/${createdCaddies[0].id}`);
 
       expect(response.status).toBe(401);
     });
 
     test('should still find caddie after soft delete but marked inactive', async () => {
       const response = await request(app)
-        .get(`/api/caddies/${testCaddieId}`)
+        .get(`/api/caddies/${createdCaddies[0].id}`)
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(response.status).toBe(200);

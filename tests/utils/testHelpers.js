@@ -42,7 +42,7 @@ export async function setupTestDatabase() {
     });
   }
 
-  // Create test caddies
+  // Create test caddies and return generated IDs
   const testCaddies = [
     { name: 'Test Caddie 1', number: 1, category: 'Primera' },
     { name: 'Test Caddie 2', number: 2, category: 'Primera' },
@@ -51,8 +51,9 @@ export async function setupTestDatabase() {
     { name: 'Test Caddie 5', number: 1, category: 'Tercera' },
   ];
 
+  const createdCaddies = [];
   for (const caddie of testCaddies) {
-    await prisma.caddie.create({
+    const created = await prisma.caddie.create({
       data: {
         name: caddie.name,
         number: caddie.number,
@@ -63,9 +64,10 @@ export async function setupTestDatabase() {
         weekendPriority: caddie.number,
       },
     });
+    createdCaddies.push(created);
   }
 
-  return { prisma };
+  return { prisma, createdCaddies };
 }
 
 export async function cleanupTestDatabase() {
