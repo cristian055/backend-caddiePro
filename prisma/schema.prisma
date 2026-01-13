@@ -222,3 +222,227 @@ model Message {
 
   @@map("messages")
 }
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS - Authentication and user management
+// ============================================
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   // 'admin' | 'operator'
+  location     String   // 'Llanogrande' | 'Medellín'
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  dispatchHistory DispatchHistory[] @relation("DispatchedBy")
+
+  @@map("users")
+}
+
+// ============================================
+// CADDIES - Master caddie data
+// ============================================
+model Caddie {
+  id                String    @id @default(uuid())
+  name              String
+  number            Int
+  status            String    @default("AVAILABLE") // AVAILABLE, IN_PREP, IN_FIELD, LATE, ABSENT, ON_LEAVE
+  isActive          Boolean   @default(true) @map("is_active")
+  category          String?   // 'Primera' | 'Segunda' | 'Tercera'
+  location          String    @default("Llanogrande") // 'Llanogrande' | 'Medellín'
+  role              String    @default("Golf") // 'Golf' | 'Tennis' | 'Hybrid'
+  weekendPriority   Int       @default(0) @map("weekend_priority")
+  isSkippedNextWeek Boolean   @default(false) @map("is_skipped_next_week")
+  historyCount      Int       @default(0) @map("history_count")
+  absencesCount     Int       @default(0) @map("absences_count")
+  lateCount         Int       @default(0) @map("late_count")
+  leaveCount        Int       @default(0) @map("leave_count")
+  lastActionTime    DateTime? @map("last_action_time")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  availability        CaddieAvailability[] @relation("CaddieAvailability")
+  dispatchHistory     DispatchHistory[]    @relation("CaddieDispatch")
+  serviceLogs         ServiceLog[]         @relation("CaddieServiceLogs")
+  weeklyAssignments   WeeklyAssignment[]  @relation("CaddieAssignments")
+  dailyAttendances    DailyAttendance[]   @relation("CaddieDailyAttendance")
+
+  @@unique([number, category])
+  @@map("caddies")
+}
+
+// ============================================
+// CADDIE AVAILABILITY - Availability by day
+// ============================================
+model CaddieAvailability {
+  id           String    @id @default(uuid())
+  caddieId     String    @map("caddie_id")
+  day          String    // 'Monday' | 'Tuesday' | ... | 'Sunday'
+  isAvailable  Boolean   @default(true) @map("is_available")
+  rangeType    String?   @map("range_type") // 'full' | 'before' | 'after' | 'between'
+  rangeTime    String?   @map("range_time") // HH:MM format
+  rangeEndTime String?   @map("range_end_time") // HH:MM format (for 'between' type)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  caddie Caddie @relation("CaddieAvailability", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, day])
+  @@map("caddie_availability")
+}
+
+// ============================================
+// DAILY ATTENDANCE - Daily attendance tracking per caddie
+// ============================================
+model DailyAttendance {
+  id            String    @id @default(uuid())
+  caddieId      String    @map("caddie_id")
+  date          DateTime  @db.Date
+  status        String    // 'PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'
+  arrivalTime   DateTime? @map("arrival_time")
+  servicesCount Int       @default(0) @map("services_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  caddie Caddie @relation("CaddieDailyAttendance", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, date])
+  @@map("daily_attendance")
+}
+
+// ============================================
+// LIST CONFIGS - Queue list configurations
+// ============================================
+model ListConfig {
+  id         String   @id @default(uuid())
+  name       String
+  orderType  String   @default("ASC") @map("order_type") // 'ASC' | 'DESC' | 'RANDOM' | 'MANUAL'
+  rangeStart Int      @map("range_start")
+  rangeEnd   Int      @map("range_end")
+  category   String   // 'Primera' | 'Segunda' | 'Tercera'
+  location   String   @default("Llanogrande") // 'Llanogrande' | 'Medellín'
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  dispatchHistory DispatchHistory[] @relation("ListDispatch")
+
+  @@map("list_configs")
+}
+
+// ============================================
+// WEEKLY SHIFTS - Shift configurations
+// ============================================
+model WeeklyShift {
+  id        String   @id @default(uuid())
+  day       String   // 'Monday' | 'Tuesday' | ... | 'Sunday'
+  time      String   // HH:MM format
+  location  String   @default("Llanogrande") // 'Llanogrande' | 'Medellín'
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  requirements WeeklyShiftRequirement[] @relation("ShiftRequirements")
+  assignments  WeeklyAssignment[]       @relation("ShiftAssignments")
+
+  @@map("weekly_shifts")
+}
+
+// ============================================
+// WEEKLY SHIFT REQUIREMENTS - Caddie requirements per shift
+// ============================================
+model WeeklyShiftRequirement {
+  id        String   @id @default(uuid())
+  shiftId   String   @map("shift_id")
+  category  String   // 'Primera' | 'Segunda' | 'Tercera'
+  count     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  shift WeeklyShift @relation("ShiftRequirements", fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, category])
+  @@map("weekly_shift_requirements")
+}
+
+// ============================================
+// WEEKLY ASSIGNMENTS - Caddie assignments to shifts
+// ============================================
+model WeeklyAssignment {
+  id           String   @id @default(uuid())
+  shiftId      String   @map("shift_id")
+  caddieId     String   @map("caddie_id")
+  caddieName   String   @map("caddie_name")
+  caddieNumber Int      @map("caddie_number")
+  category     String
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  shift  WeeklyShift @relation("ShiftAssignments", fields: [shiftId], references: [id], onDelete: Cascade)
+  caddie Caddie      @relation("CaddieAssignments", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftId, caddieId])
+  @@map("weekly_assignments")
+}
+
+// ============================================
+// DISPATCH HISTORY - Audit log for dispatch operations
+// ============================================
+model DispatchHistory {
+  id             String   @id @default(uuid())
+  caddieId       String   @map("caddie_id")
+  previousStatus String   @map("previous_status")
+  newStatus      String   @map("new_status")
+  listId         String?  @map("list_id")
+  dispatchedBy   String?  @map("dispatched_by")
+  dispatchedAt   DateTime @default(now()) @map("dispatched_at")
+  location       String
+
+  caddie Caddie      @relation("CaddieDispatch", fields: [caddieId], references: [id], onDelete: Cascade)
+  list   ListConfig? @relation("ListDispatch", fields: [listId], references: [id], onDelete: SetNull)
+  user   User?       @relation("DispatchedBy", fields: [dispatchedBy], references: [id], onDelete: SetNull)
+
+  @@map("dispatch_history")
+}
+
+// ============================================
+// SERVICE LOGS - Daily service statistics for reports
+// ============================================
+model ServiceLog {
+  id            String   @id @default(uuid())
+  caddieId      String   @map("caddie_id")
+  serviceDate   DateTime @map("service_date") @db.Date
+  servicesCount Int      @default(0) @map("services_count")
+  absencesCount Int      @default(0) @map("absences_count")
+  leavesCount   Int      @default(0) @map("leaves_count")
+  latesCount    Int      @default(0) @map("lates_count")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  caddie Caddie @relation("CaddieServiceLogs", fields: [caddieId], references: [id], onDelete: Cascade)
+
+  @@unique([caddieId, serviceDate])
+  @@map("service_logs")
+}
+
+// ============================================
+// MESSAGES - Broadcast messages (keeping existing functionality)
+// ============================================
+model Message {
+  id             String   @id @default(uuid())
+  content        String
+  targetCategory String?  @map("target_category") // null means all categories
+  createdAt      DateTime @default(now()) @map("created_at")
+  read           Boolean  @default(false)
+
+  @@map("messages")
+}

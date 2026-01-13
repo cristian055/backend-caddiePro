@@ -174,7 +174,7 @@ export const updateCaddie = async (req, res) => {
   try {
     const { id } = req.params;
     const { updates } = req.body;
-    const { updated, previousStatus } = await caddieService.updateCaddie(id, updates);
+    const { updated, previousStatus, numberReassigned } = await caddieService.updateCaddie(id, updates);
 
     // Handle attendance updates if status changed
     if (updates.status !== undefined && updates.status !== previousStatus) {
@@ -194,7 +194,7 @@ export const updateCaddie = async (req, res) => {
 
     res.json({
       success: true,
-      data: updated,
+      data: { ...updated, numberReassigned: numberReassigned || false },
     });
   } catch (error) {
     console.error('Update caddie error:', error);

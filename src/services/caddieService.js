@@ -353,26 +353,38 @@ export class CaddieService {
     const data = {};
 
     if (updates.name !== undefined) data.name = updates.name;
-    if (updates.number !== undefined) {
+    if (updates.number !== undefined && data.number === undefined) {
       const existing = await prisma.caddie.findFirst({
-        where: { number: updates.number, NOT: { id } },
+        where: {
+          number: updates.number,
+          NOT: { id },
+          category: updates.category || caddie.category
+        },
       });
       if (existing) {
-        throw new Error('A caddie with this number already exists');
+        throw new Error(`Caddie number ${updates.number} already exists in this category`);
       }
       data.number = updates.number;
     }
-    if (updates.category !== undefined) {
+    if (updates.category !== undefined && updates.category !== caddie.category) {
       data.category = updates.category;
 
-      // Auto-calculate weekendPriority when changing category
       const lastCaddieInCategory = await prisma.caddie.findFirst({
+        where: { category: updates.category },
+        orderBy: { number: 'desc' },
+        select: { number: true }
+      });
+
+      const newNumber = (lastCaddieInCategory?.number || 0) + 1;
+      data.number = newNumber;
+
+      const lastPriorityInCategory = await prisma.caddie.findFirst({
         where: { category: updates.category },
         orderBy: { weekendPriority: 'desc' },
         select: { weekendPriority: true }
       });
 
-      const newPriority = (lastCaddieInCategory?.weekendPriority || 0) + 1;
+      const newPriority = (lastPriorityInCategory?.weekendPriority || 0) + 1;
 
       if (updates.weekendPriority === undefined) {
         data.weekendPriority = newPriority;
@@ -427,6 +439,10 @@ export class CaddieService {
     return {
       updated: this.formatCaddies([result])[0],
       previousStatus: caddie.status,
+      numberReassigned: data.number !== caddie.number &&
+                         data.number !== undefined &&
+                         updates.category !== undefined &&
+                         updates.category !== caddie.category
     };
   }
 
