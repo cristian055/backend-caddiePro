@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import { emitCaddieStatusChanged } from '../utils/websocketEmitter.js';
 import { VALID_ATTENDANCE_STATUSES } from '../validators/validators.js';
 
 /**
@@ -52,6 +53,29 @@ export class AttendanceService {
           arrivalTime: (status === 'PRESENT' || status === 'LATE') ? new Date() : null
         },
         include: { caddie: true }
+      });
+    }
+
+    const queuePosition = await prisma.queuePosition.findFirst({
+      where: { caddieId }
+    });
+
+    const currentOperationalStatus = queuePosition?.operationalStatus || 'AVAILABLE';
+
+    if (attendance && queuePosition) {
+      emitCaddieStatusChanged({
+        id: attendance.caddieId,
+        name: caddie.name,
+        number: caddie.number,
+        category: caddie.category,
+        previousStatus: currentOperationalStatus,
+        newStatus: currentOperationalStatus,
+        caddie: {
+          id: caddie.id,
+          name: caddie.name,
+          number: caddie.number,
+          category: caddie.category,
+        },
       });
     }
 
@@ -124,6 +148,8 @@ export class AttendanceService {
       throw new Error('Attendance record not found');
     }
 
+    const caddie = await prisma.caddie.findUnique({ where: { id: existing.caddieId } });
+
     const data = {};
     if (updates.status !== undefined) {
       if (!VALID_ATTENDANCE_STATUSES.includes(updates.status)) {
@@ -138,6 +164,29 @@ export class AttendanceService {
       data,
       include: { caddie: true }
     });
+
+    const queuePosition = await prisma.queuePosition.findFirst({
+      where: { caddieId: existing.caddieId }
+    });
+
+    const currentOperationalStatus = queuePosition?.operationalStatus || 'AVAILABLE';
+
+    if (attendance && queuePosition) {
+      emitCaddieStatusChanged({
+        id: attendance.caddieId,
+        name: caddie.name,
+        number: caddie.number,
+        category: caddie.category,
+        previousStatus: currentOperationalStatus,
+        newStatus: currentOperationalStatus,
+        caddie: {
+          id: caddie.id,
+          name: caddie.name,
+          number: caddie.number,
+          category: caddie.category,
+        },
+      });
+    }
 
     return attendance;
   }

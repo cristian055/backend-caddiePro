@@ -516,7 +516,7 @@ export class CaddieService {
       throw new Error(`Status must be one of: ${validStatuses.join(', ')}`);
     }
 
-    const queuePosition = await prisma.queuePosition.findUnique({
+    const queuePosition = await prisma.queuePosition.findFirst({
       where: { caddieId: id },
     });
     if (!queuePosition) {
@@ -533,7 +533,7 @@ export class CaddieService {
     }
 
     const updated = await prisma.queuePosition.update({
-      where: { caddieId: id },
+      where: { id: queuePosition.id },
       data: updateData,
       include: { caddie: true },
     });
