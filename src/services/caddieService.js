@@ -528,6 +528,52 @@ export class CaddieService {
       category: caddie.category,
     };
   }
+
+  /**
+   * Get caddies with combined operational and attendance status
+   */
+  async getCaddiesWithQueueStatus(category, location = 'Llanogrande') {
+    const caddies = await prisma.caddie.findMany({
+      where: {
+        category,
+        location,
+        isActive: true,
+      },
+      include: {
+        queuePosition: true,
+        dailyAttendances: {
+          where: {
+            date: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            },
+          },
+          orderBy: { date: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { number: 'asc' },
+    });
+
+    return caddies.map(caddie => ({
+      ...caddie,
+      operationalStatus: caddie.queuePosition?.operationalStatus || 'AVAILABLE',
+      attendanceStatus: caddie.dailyAttendances[0]?.status || 'PRESENT',
+      combinedStatus: this.combineStatuses(
+        caddie.queuePosition?.operationalStatus,
+        caddie.dailyAttendances[0]?.status
+      ),
+    }));
+  }
+
+  /**
+   * Combine operational and attendance statuses for display
+   */
+  combineStatuses(operational, attendance) {
+    if (!attendance || attendance === 'PRESENT') {
+      return operational || 'AVAILABLE';
+    }
+    return `${attendance} + ${operational || 'AVAILABLE'}`;
+  }
 }
 
 // Export singleton instance
