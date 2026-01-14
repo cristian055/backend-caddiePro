@@ -12,6 +12,7 @@ import {
   updateCaddie,
   deleteCaddie,
   updateCaddieStatus,
+  promoteCaddie,
 } from '../controllers/caddieController.js';
 import { authenticate, optionalAuth } from '../middleware/auth.js';
 
@@ -45,7 +46,7 @@ router.post(
   [
     body('name').isLength({ min: 2, max: 100 }).withMessage('Name must be between 2 and 100 characters'),
     body('number').isInt({ min: 1, max: 999 }).withMessage('Number must be between 1 and 999'),
-    body('category').isIn(['Primera', 'Segunda', 'Tercera']).withMessage('Invalid category'),
+    body('category').isIn(['PRIMERA', 'SEGUNDA', 'TERCERA']).withMessage('Invalid category'),
     body('location').isIn(['Llanogrande', 'Medellín']).withMessage('Invalid location'),
     body('role').isIn(['Golf', 'Tennis', 'Hybrid']).withMessage('Invalid role'),
   ],
@@ -64,10 +65,21 @@ router.patch(
   authenticate,
   [
     body('status')
-      .isIn(['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'LATE', 'ABSENT', 'ON_LEAVE'])
+      .isIn(['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'])
       .withMessage('Invalid status'),
   ],
   updateCaddieStatus
+);
+
+// POST /caddies/promote - Promote a caddie to a higher category
+router.post(
+  '/promote',
+  authenticate,
+  [
+    body('caddieId').isUUID().withMessage('Invalid caddie ID format'),
+    body('newCategory').isIn(['PRIMERA', 'SEGUNDA', 'TERCERA']).withMessage('Invalid category'),
+  ],
+  promoteCaddie
 );
 
 export default router;

@@ -1,6 +1,7 @@
 import { caddieService } from '../services/caddieService.js';
 import { attendanceService } from '../services/attendanceService.js';
-import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged, emitDailyAttendanceUpdated } from '../utils/websocketEmitter.js';
+import { categoryPromotionService } from '../services/categoryPromotionService.js';
+import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged, emitDailyAttendanceUpdated, emitQueueUpdated } from '../utils/websocketEmitter.js';
 
 /**
  * GET /caddies
@@ -289,6 +290,66 @@ export const updateCaddieStatus = async (req, res) => {
     });
   }
 };
+
+/**
+ * POST /caddies/promote
+ * Promote a caddie to a higher category
+ */
+export const promoteCaddie = async (req, res) => {
+  try {
+    const { caddieId, newCategory } = req.body;
+    if (!caddieId || !newCategory) {
+      return res.status(400).json({ success: false, error: { code: 'MISSING_FIELDS', message: 'caddieId and newCategory are required' } });
+    }
+
+    const caddie = await caddieService.getCaddieById(caddieId);
+    if (!caddie) {
+      return res.status(404).json({ success: false, error: { code: 'CADDIE_NOT_FOUND', message: 'Caddie not found' } });
+    }
+
+    const result = await categoryPromotionService.promoteCaddie(caddieId, caddie.category, newCategory);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: result.error,
+          message: getPromotionErrorMessage(result.error),
+          details: result,
+        },
+      });
+    }
+
+    emitQueueUpdated(caddie.category);
+    emitQueueUpdated(newCategory);
+
+    return res.json({
+      success: true,
+      data: {
+        caddie: result.caddie,
+        oldPosition: result.oldPosition,
+        newPosition: result.newPosition,
+        queueRecalculated: true,
+      },
+    });
+  } catch (error) {
+    console.error('Promote caddie error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: error.message || 'Internal server error' },
+    });
+  }
+};
+
+function getPromotionErrorMessage(errorCode) {
+  const messages = {
+    CADDIE_NOT_IN_QUEUE: 'Caddie is not in queue',
+    CADDIE_NOT_AVAILABLE: 'Caddie must be AVAILABLE to be promoted',
+    CADDIE_IN_FIELD: 'Caddie is currently IN_FIELD and cannot be promoted',
+    INVALID_TRANSITION: 'Cannot promote to this category',
+  };
+  return messages[errorCode] || 'Unknown promotion error';
+}
 
 // Legacy support
 export const getCaddiesByList = async (req, res) => {
