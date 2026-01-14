@@ -34,7 +34,7 @@ export class CategoryPromotionService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const currentPosition = await tx.queuePosition.findUnique({
+      const currentPosition = await tx.queuePosition.findFirst({
         where: { caddieId },
         include: { caddie: true },
       });
@@ -49,12 +49,17 @@ export class CategoryPromotionService {
 
       const oldPosition = currentPosition.position;
 
+      const nextNumber = await this.#getNextNumber(tx, toCategory);
+
       await tx.caddie.update({
         where: { id: caddieId },
-        data: { category: toCategory },
+        data: {
+          category: toCategory,
+          number: nextNumber,
+        },
       });
 
-      await tx.queuePosition.delete({
+      await tx.queuePosition.deleteMany({
         where: { caddieId },
       });
 
@@ -77,7 +82,7 @@ export class CategoryPromotionService {
       });
 
       return { caddie, oldPosition, newPosition };
-    });
+    }, { timeout: 15000 });
 
     return {
       success: true,
@@ -112,6 +117,15 @@ export class CategoryPromotionService {
     });
 
     return lastPosition ? lastPosition.position + 1 : 1;
+  }
+
+  async #getNextNumber(tx, category) {
+    const lastCaddie = await tx.caddie.findFirst({
+      where: { category },
+      orderBy: { number: 'desc' },
+    });
+
+    return lastCaddie ? lastCaddie.number + 1 : 1;
   }
 }
 

@@ -175,23 +175,10 @@ export const updateCaddie = async (req, res) => {
   try {
     const { id } = req.params;
     const { updates } = req.body;
-    const { updated, previousStatus, numberReassigned } = await caddieService.updateCaddie(id, updates);
+    const { updated, numberReassigned } = await caddieService.updateCaddie(id, updates);
 
-    // Handle attendance updates if status changed
-    if (updates.status !== undefined && updates.status !== previousStatus) {
-      const attendanceStatuses = ['ABSENT', 'ON_LEAVE', 'LATE'];
-      if (attendanceStatuses.includes(updates.status)) {
-        const attendance = await attendanceService.handleAttendanceForStatusChange(id, updates.status);
-        emitDailyAttendanceUpdated(attendance);
-      }
-    }
-
-    // Emit WebSocket events
     emitCaddieUpdated(id, updates, updated.category);
-
-    if (updates.status !== undefined && updates.status !== previousStatus) {
-      emitCaddieStatusChanged(updated, previousStatus);
-    }
+    emitQueueUpdated(updated.category);
 
     res.json({
       success: true,
@@ -239,7 +226,7 @@ export const deleteCaddie = async (req, res) => {
 
 /**
  * PATCH /caddies/:id/status
- * Update caddie status
+ * Update caddie operational status
  */
 export const updateCaddieStatus = async (req, res) => {
   try {
@@ -247,25 +234,14 @@ export const updateCaddieStatus = async (req, res) => {
     const { status } = req.body;
     const { caddie, previousStatus } = await caddieService.updateCaddieStatus(id, status);
 
-    // Handle IN_PREP - create PRESENT attendance
-    if (status === 'IN_PREP') {
-      const attendance = await attendanceService.handleAttendanceForStatusChange(id, 'PRESENT');
-      emitDailyAttendanceUpdated(attendance);
-    }
-
     // Handle service completion (IN_FIELD from IN_PREP)
     if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
       const attendance = await attendanceService.incrementServicesCount(id);
       emitDailyAttendanceUpdated(attendance);
     }
 
-    // Handle attendance statuses
-    if (['ABSENT', 'ON_LEAVE', 'LATE'].includes(status)) {
-      const attendance = await attendanceService.handleAttendanceForStatusChange(id, status);
-      emitDailyAttendanceUpdated(attendance);
-    }
-
     emitCaddieStatusChanged(caddie, previousStatus);
+    emitQueueUpdated(caddie.category);
 
     res.json({
       success: true,
@@ -273,7 +249,7 @@ export const updateCaddieStatus = async (req, res) => {
         id: caddie.id,
         name: caddie.name,
         number: caddie.number,
-        status: caddie.status,
+        operationalStatus: caddie.operationalStatus,
         previousStatus,
       },
     });

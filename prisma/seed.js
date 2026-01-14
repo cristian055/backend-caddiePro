@@ -14,19 +14,19 @@ async function main() {
   });
 
   if (!existingAdmin) {
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    const hashedPassword = await bcrypt.hash('Admin123#', 10);
     const admin = await prisma.user.create({
       data: {
         email: 'admin@campestre.com',
         passwordHash: hashedPassword,
-        role: 'admin',
+        role: 'ADMIN',
         location: 'Llanogrande',
         isActive: true,
       },
     });
     console.log('✅ Created admin user:');
     console.log('   Email: admin@campestre.com');
-    console.log('   Password: admin123');
+    console.log('   Password: Admin123#');
     console.log('   Role: admin');
   } else {
     console.log('⏭️  Admin user already exists');
@@ -36,9 +36,9 @@ async function main() {
   // Create default list configurations
   // ============================================
   const listDefaults = [
-    { category: 'Primera', name: 'Lista Primera', rangeStart: 1, rangeEnd: 60 },
-    { category: 'Segunda', name: 'Lista Segunda', rangeStart: 1, rangeEnd: 30 },
-    { category: 'Tercera', name: 'Lista Tercera', rangeStart: 1, rangeEnd: 25 },
+    { category: 'PRIMERA', name: 'Lista Primera', rangeStart: 1, rangeEnd: 60 },
+    { category: 'SEGUNDA', name: 'Lista Segunda', rangeStart: 1, rangeEnd: 30 },
+    { category: 'TERCERA', name: 'Lista Tercera', rangeStart: 1, rangeEnd: 25 },
   ];
 
   console.log('\n📋 Checking list configurations...');
@@ -73,12 +73,12 @@ async function main() {
     console.log('\n👤 Creating sample caddies...');
     
     const sampleCaddies = [
-      { name: 'Test Caddie 1', number: 1, category: 'Primera' },
-      { name: 'Test Caddie 2', number: 2, category: 'Primera' },
-      { name: 'Test Caddie 3', number: 1, category: 'Segunda' },
-      { name: 'Test Caddie 4', number: 2, category: 'Segunda' },
-      { name: 'Test Caddie 5', number: 1, category: 'Tercera' },
-      { name: 'Test Caddie 6', number: 2, category: 'Tercera' },
+      { name: 'Test Caddie 1', number: 1, category: 'PRIMERA' },
+      { name: 'Test Caddie 2', number: 2, category: 'PRIMERA' },
+      { name: 'Test Caddie 3', number: 1, category: 'SEGUNDA' },
+      { name: 'Test Caddie 4', number: 2, category: 'SEGUNDA' },
+      { name: 'Test Caddie 5', number: 1, category: 'TERCERA' },
+      { name: 'Test Caddie 6', number: 2, category: 'TERCERA' },
     ];
 
     for (const caddie of sampleCaddies) {
@@ -87,10 +87,9 @@ async function main() {
           name: caddie.name,
           number: caddie.number,
           category: caddie.category,
-          status: 'AVAILABLE',
           isActive: true,
           location: 'Llanogrande',
-          role: 'Golf',
+          role: 'GOLF',
           weekendPriority: caddie.number,
         },
       });
