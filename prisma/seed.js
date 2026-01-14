@@ -1,7 +1,107 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient();
+
+const CATEGORY_MAP = {
+  'Primera': 'PRIMERA',
+  'Segunda': 'SEGUNDA',
+  'Tercera': 'TERCERA'
+};
+
+function parseCaddiesCSV() {
+  const csvPath = path.join(__dirname, '..', 'load_data', 'caddies.csv');
+
+  if (!fs.existsSync(csvPath)) {
+    console.warn(`   ⚠️  CSV file not found: ${csvPath}`);
+    return [];
+  }
+
+  const content = fs.readFileSync(csvPath, 'utf-8');
+
+  return content
+    .split('\n')
+    .slice(1)
+    .filter(line => line.trim())
+    .map(line => {
+      const parts = line.split(',');
+      if (parts.length < 2) return null;
+      const name = parts[0].replace(/^"|"$/g, '').trim();
+      const lista = parts[1].replace(/^"|"$/g, '').trim();
+      return { name, lista };
+    })
+    .filter(Boolean);
+}
+
+async function seedCaddiesFromCSV() {
+  const caddieRecords = parseCaddiesCSV();
+
+  if (caddieRecords.length === 0) {
+    console.log('\n⏭️  No caddies found in CSV');
+    return { createdCaddies: 0, createdPositions: 0 };
+  }
+
+  console.log(`\n📥 Found ${caddieRecords.length} caddies in CSV`);
+
+  const categoryCounters = { PRIMERA: 0, SEGUNDA: 0, TERCERA: 0 };
+  let createdCaddies = 0;
+  let createdPositions = 0;
+
+  for (const record of caddieRecords) {
+    const categoryEnum = CATEGORY_MAP[record.lista];
+
+    if (!categoryEnum) {
+      console.warn(`   ⚠️  Unknown category: ${record.lista} for ${record.name}`);
+      continue;
+    }
+
+    const existingCaddie = await prisma.caddie.findFirst({
+      where: { name: record.name }
+    });
+
+    if (existingCaddie) {
+      console.log(`   ⏭️  Skipped (exists): ${record.name}`);
+      categoryCounters[categoryEnum]++;
+      continue;
+    }
+
+    const number = ++categoryCounters[categoryEnum];
+
+    const caddie = await prisma.caddie.create({
+      data: {
+        name: record.name,
+        number,
+        category: categoryEnum,
+        isActive: true,
+        location: 'Llanogrande',
+        role: 'GOLF',
+        weekendPriority: number,
+      }
+    });
+    createdCaddies++;
+
+    await prisma.queuePosition.create({
+      data: {
+        caddieId: caddie.id,
+        category: categoryEnum,
+        position: number,
+        operationalStatus: 'AVAILABLE',
+      }
+    });
+    createdPositions++;
+  }
+
+  console.log(`   ✅ Created ${createdCaddies} caddies`);
+  console.log(`   ✅ Created ${createdPositions} queue positions`);
+
+  return { createdCaddies, createdPositions };
+}
 
 async function main() {
   console.log('Starting seed...\n');
@@ -65,39 +165,9 @@ async function main() {
   }
 
   // ============================================
-  // Create sample caddies (only if no caddies exist)
+  // Load caddies from CSV with QueuePosition
   // ============================================
-  const caddieCount = await prisma.caddie.count();
-  
-  if (caddieCount === 0) {
-    console.log('\n👤 Creating sample caddies...');
-    
-    const sampleCaddies = [
-      { name: 'Test Caddie 1', number: 1, category: 'PRIMERA' },
-      { name: 'Test Caddie 2', number: 2, category: 'PRIMERA' },
-      { name: 'Test Caddie 3', number: 1, category: 'SEGUNDA' },
-      { name: 'Test Caddie 4', number: 2, category: 'SEGUNDA' },
-      { name: 'Test Caddie 5', number: 1, category: 'TERCERA' },
-      { name: 'Test Caddie 6', number: 2, category: 'TERCERA' },
-    ];
-
-    for (const caddie of sampleCaddies) {
-      await prisma.caddie.create({
-        data: {
-          name: caddie.name,
-          number: caddie.number,
-          category: caddie.category,
-          isActive: true,
-          location: 'Llanogrande',
-          role: 'GOLF',
-          weekendPriority: caddie.number,
-        },
-      });
-      console.log(`   ✅ Created: ${caddie.name} (${caddie.category})`);
-    }
-  } else {
-    console.log(`\n⏭️  ${caddieCount} caddies already exist, skipping sample data`);
-  }
+  await seedCaddiesFromCSV();
 
   // ============================================
   // Create welcome message
