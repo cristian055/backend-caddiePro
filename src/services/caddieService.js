@@ -1,5 +1,5 @@
 import prisma from '../config/database.js';
-import { VALID_CATEGORIES, VALID_LOCATIONS, VALID_ROLES, VALID_STATUSES } from '../validators/validators.js';
+import { VALID_CATEGORIES, VALID_LOCATIONS, VALID_ROLES } from '../validators/validators.js';
 
 /**
  * CaddieService - Handles all caddie business logic
@@ -65,19 +65,14 @@ export class CaddieService {
       id: caddie.id,
       name: caddie.name,
       number: caddie.number,
-      status: caddie.status,
       isActive: caddie.isActive,
       category: caddie.category,
       location: caddie.location,
       role: caddie.role,
       weekendPriority: caddie.weekendPriority,
       isSkippedNextWeek: caddie.isSkippedNextWeek,
-      historyCount: caddie.historyCount,
-      absencesCount: caddie.absencesCount,
-      lateCount: caddie.lateCount,
-      leaveCount: caddie.leaveCount,
       lastActionTime: caddie.lastActionTime,
-      availability: caddie.availability.map(a => ({
+      availability: caddie.availability ? caddie.availability.map(a => ({
         day: a.day,
         isAvailable: a.isAvailable,
         range: a.rangeType ? {
@@ -85,7 +80,7 @@ export class CaddieService {
           time: a.rangeTime,
           endTime: a.rangeEndTime,
         } : null,
-      })),
+      })) : [],
     }));
   }
 
@@ -123,21 +118,35 @@ export class CaddieService {
    * Get caddies for queue
    */
   async getCaddiesQueue() {
-    const caddies = await prisma.caddie.findMany({
+    const queuePositions = await prisma.queuePosition.findMany({
       where: {
-        isActive: true,
-        status: { in: ['AVAILABLE', 'LATE'] },
+        operationalStatus: { in: ['AVAILABLE', 'IN_PREP'] },
+        caddie: {
+          isActive: true,
+        },
       },
-      orderBy: [{ weekendPriority: 'asc' }, { number: 'asc' }],
+      include: {
+        caddie: {
+          select: {
+            id: true,
+            name: true,
+            number: true,
+            category: true,
+            weekendPriority: true,
+          },
+        },
+      },
+      orderBy: [{ position: 'asc' }],
     });
 
-    return caddies.map(c => ({
-      id: c.id,
-      name: c.name,
-      number: c.number,
-      status: c.status,
-      category: c.category,
-      weekendPriority: c.weekendPriority,
+    return queuePositions.map(qp => ({
+      id: qp.caddie.id,
+      name: qp.caddie.name,
+      number: qp.caddie.number,
+      operationalStatus: qp.operationalStatus,
+      position: qp.position,
+      category: qp.category,
+      weekendPriority: qp.caddie.weekendPriority,
     }));
   }
 
@@ -145,20 +154,34 @@ export class CaddieService {
    * Get caddies that need to return
    */
   async getCaddiesReturns() {
-    const caddies = await prisma.caddie.findMany({
+    const queuePositions = await prisma.queuePosition.findMany({
       where: {
-        isActive: true,
-        status: { in: ['IN_PREP', 'IN_FIELD'] },
+        operationalStatus: { in: ['IN_PREP', 'IN_FIELD'] },
+        caddie: {
+          isActive: true,
+        },
       },
-      orderBy: [{ lastActionTime: 'asc' }],
+      include: {
+        caddie: {
+          select: {
+            id: true,
+            name: true,
+            number: true,
+            category: true,
+          },
+        },
+      },
+      orderBy: [{ lastDispatchedAt: 'asc' }],
     });
 
-    return caddies.map(c => ({
-      id: c.id,
-      name: c.name,
-      number: c.number,
-      status: c.status,
-      category: c.category,
+    return queuePositions.map(qp => ({
+      id: qp.caddie.id,
+      name: qp.caddie.name,
+      number: qp.caddie.number,
+      operationalStatus: qp.operationalStatus,
+      position: qp.position,
+      category: qp.category,
+      lastDispatchedAt: qp.lastDispatchedAt,
     }));
   }
 
@@ -166,23 +189,52 @@ export class CaddieService {
    * Get caddie statistics
    */
   async getCaddieStatistics() {
-    const [total, active, byStatus, byCategory] = await Promise.all([
+    const [total, active] = await Promise.all([
       prisma.caddie.count(),
       prisma.caddie.count({ where: { isActive: true } }),
-      prisma.caddie.groupBy({
-        by: ['status'],
-        _count: { status: true },
-      }),
-      prisma.caddie.groupBy({
-        by: ['category'],
-        _count: { category: true },
-        where: { isActive: true },
-      }),
     ]);
 
-    const statusCounts = {};
-    VALID_STATUSES.forEach(s => statusCounts[s] = 0);
-    byStatus.forEach(s => statusCounts[s.status] = s._count.status);
+    const queuePositions = await prisma.queuePosition.findMany({
+      where: {
+        caddie: { isActive: true },
+      },
+    });
+
+    const byOperationalStatus = {};
+    ['AVAILABLE', 'IN_PREP', 'IN_FIELD'].forEach(s => byOperationalStatus[s] = 0);
+    queuePositions.forEach(qp => {
+      if (byOperationalStatus[qp.operationalStatus] !== undefined) {
+        byOperationalStatus[qp.operationalStatus]++;
+      }
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayAttendances = await prisma.dailyAttendance.findMany({
+      where: {
+        date: {
+          gte: today,
+          lt: tomorrow,
+        },
+      },
+    });
+
+    const byAttendanceStatus = {};
+    ['PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'].forEach(s => byAttendanceStatus[s] = 0);
+    todayAttendances.forEach(a => {
+      if (byAttendanceStatus[a.status] !== undefined) {
+        byAttendanceStatus[a.status]++;
+      }
+    });
+
+    const byCategory = await prisma.caddie.groupBy({
+      by: ['category'],
+      _count: { category: true },
+      where: { isActive: true },
+    });
 
     const categoryCounts = {};
     VALID_CATEGORIES.forEach(c => categoryCounts[c] = 0);
@@ -194,7 +246,8 @@ export class CaddieService {
       total,
       active,
       inactive: total - active,
-      byStatus: statusCounts,
+      byOperationalStatus,
+      byAttendanceStatus,
       byCategory: categoryCounts,
     };
   }
@@ -307,8 +360,23 @@ export class CaddieService {
         location,
         role,
         weekendPriority: calculatedWeekendPriority,
-        status: 'AVAILABLE',
         isActive: true,
+      },
+    });
+
+    // Create initial queue position
+    const lastPosition = await prisma.queuePosition.findFirst({
+      where: { category },
+      orderBy: { position: 'desc' },
+    });
+    const initialPosition = lastPosition ? lastPosition.position + 1 : 1;
+
+    await prisma.queuePosition.create({
+      data: {
+        caddieId: caddie.id,
+        category,
+        position: initialPosition,
+        operationalStatus: 'AVAILABLE',
       },
     });
 
@@ -353,26 +421,38 @@ export class CaddieService {
     const data = {};
 
     if (updates.name !== undefined) data.name = updates.name;
-    if (updates.number !== undefined) {
+    if (updates.number !== undefined && data.number === undefined) {
       const existing = await prisma.caddie.findFirst({
-        where: { number: updates.number, NOT: { id } },
+        where: {
+          number: updates.number,
+          NOT: { id },
+          category: updates.category || caddie.category
+        },
       });
       if (existing) {
-        throw new Error('A caddie with this number already exists');
+        throw new Error(`Caddie number ${updates.number} already exists in this category`);
       }
       data.number = updates.number;
     }
-    if (updates.category !== undefined) {
+    if (updates.category !== undefined && updates.category !== caddie.category) {
       data.category = updates.category;
 
-      // Auto-calculate weekendPriority when changing category
       const lastCaddieInCategory = await prisma.caddie.findFirst({
+        where: { category: updates.category },
+        orderBy: { number: 'desc' },
+        select: { number: true }
+      });
+
+      const newNumber = (lastCaddieInCategory?.number || 0) + 1;
+      data.number = newNumber;
+
+      const lastPriorityInCategory = await prisma.caddie.findFirst({
         where: { category: updates.category },
         orderBy: { weekendPriority: 'desc' },
         select: { weekendPriority: true }
       });
 
-      const newPriority = (lastCaddieInCategory?.weekendPriority || 0) + 1;
+      const newPriority = (lastPriorityInCategory?.weekendPriority || 0) + 1;
 
       if (updates.weekendPriority === undefined) {
         data.weekendPriority = newPriority;
@@ -388,13 +468,6 @@ export class CaddieService {
       data.weekendPriority = updates.weekendPriority;
     }
     if (updates.isActive !== undefined) data.isActive = updates.isActive;
-    if (updates.status !== undefined) {
-      if (!VALID_STATUSES.includes(updates.status)) {
-        throw new Error(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
-      }
-      data.status = updates.status;
-      data.lastActionTime = new Date();
-    }
 
     const updatedCaddie = await prisma.caddie.update({
       where: { id },
@@ -426,69 +499,53 @@ export class CaddieService {
 
     return {
       updated: this.formatCaddies([result])[0],
-      previousStatus: caddie.status,
+      numberReassigned: data.number !== caddie.number &&
+                         data.number !== undefined &&
+                         updates.category !== undefined &&
+                         updates.category !== caddie.category
     };
   }
 
   /**
-   * Update caddie status
+   * Update caddie operational status in queue
+   * @deprecated Use queuePositionService.updateOperationalStatus instead
    */
   async updateCaddieStatus(id, status) {
-    if (!status || !VALID_STATUSES.includes(status)) {
-      throw new Error(`Status must be one of: ${VALID_STATUSES.join(', ')}`);
+    const validStatuses = ['AVAILABLE', 'IN_PREP', 'IN_FIELD'];
+    if (!status || !validStatuses.includes(status)) {
+      throw new Error(`Status must be one of: ${validStatuses.join(', ')}`);
     }
 
-    const caddie = await prisma.caddie.findUnique({ where: { id } });
-    if (!caddie) {
-      throw new Error('Caddie not found');
-    }
-
-    const previousStatus = caddie.status;
-
-    // Update caddie status
-    const updatedCaddie = await prisma.caddie.update({
-      where: { id },
-      data: {
-        status,
-        lastActionTime: new Date(),
-      },
+    const queuePosition = await prisma.queuePosition.findUnique({
+      where: { caddieId: id },
     });
-
-    // Log to dispatch history
-    await prisma.dispatchHistory.create({
-      data: {
-        caddieId: id,
-        previousStatus,
-        newStatus: status,
-        location: caddie.location,
-      },
-    });
-
-    // Update counts based on status
-    if (status === 'ABSENT') {
-      await prisma.caddie.update({
-        where: { id },
-        data: { absencesCount: { increment: 1 } },
-      });
-    } else if (status === 'LATE') {
-      await prisma.caddie.update({
-        where: { id },
-        data: { lateCount: { increment: 1 } },
-      });
-    } else if (status === 'ON_LEAVE') {
-      await prisma.caddie.update({
-        where: { id },
-        data: { leaveCount: { increment: 1 } },
-      });
-    } else if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
-      await prisma.caddie.update({
-        where: { id },
-        data: { historyCount: { increment: 1 } },
-      });
+    if (!queuePosition) {
+      throw new Error('Caddie not found in queue');
     }
+
+    const previousStatus = queuePosition.operationalStatus;
+
+    const updateData = { operationalStatus: status };
+    if (status !== 'AVAILABLE') {
+      updateData.lastDispatchedAt = new Date();
+    } else {
+      updateData.lastDispatchedAt = null;
+    }
+
+    const updated = await prisma.queuePosition.update({
+      where: { caddieId: id },
+      data: updateData,
+      include: { caddie: true },
+    });
 
     return {
-      caddie: updatedCaddie,
+      caddie: {
+        id: updated.caddie.id,
+        name: updated.caddie.name,
+        number: updated.caddie.number,
+        category: updated.caddie.category,
+        operationalStatus: updated.operationalStatus,
+      },
       previousStatus,
     };
   }
@@ -511,6 +568,52 @@ export class CaddieService {
       id: caddie.id,
       category: caddie.category,
     };
+  }
+
+  /**
+   * Get caddies with combined operational and attendance status
+   */
+  async getCaddiesWithQueueStatus(category, location = 'Llanogrande') {
+    const caddies = await prisma.caddie.findMany({
+      where: {
+        category,
+        location,
+        isActive: true,
+      },
+      include: {
+        queuePosition: true,
+        dailyAttendances: {
+          where: {
+            date: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            },
+          },
+          orderBy: { date: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { number: 'asc' },
+    });
+
+    return caddies.map(caddie => ({
+      ...caddie,
+      operationalStatus: caddie.queuePosition?.operationalStatus || 'AVAILABLE',
+      attendanceStatus: caddie.dailyAttendances[0]?.status || 'PRESENT',
+      combinedStatus: this.combineStatuses(
+        caddie.queuePosition?.operationalStatus,
+        caddie.dailyAttendances[0]?.status
+      ),
+    }));
+  }
+
+  /**
+   * Combine operational and attendance statuses for display
+   */
+  combineStatuses(operational, attendance) {
+    if (!attendance || attendance === 'PRESENT') {
+      return operational || 'AVAILABLE';
+    }
+    return `${attendance} + ${operational || 'AVAILABLE'}`;
   }
 }
 

@@ -16,10 +16,13 @@
     "prisma:studio": "prisma studio",
     "prisma:push": "prisma db push",
     "prisma:seed": "node prisma/seed.js",
+    "prisma:seed:dev": "node prisma/seed-dev.js",
     "reset:admin": "node scripts/reset-admin.js check",
     "reset:admin:force": "node scripts/reset-admin.js reset",
+    "reset:db": "node scripts/reset-db.js",
     "import:caddies": "node scripts/import-caddies.js",
-    "install:all": "npm install && npx prisma generate && npx prisma db push && npm run prisma:seed"
+    "install:all": "npm install && npx prisma generate && npx prisma db push && npm run prisma:seed",
+    "refactor:apply": "npm run reset:db && npm run prisma:push && npm run prisma:seed:dev"
   },
   "keywords": [
     "caddie",

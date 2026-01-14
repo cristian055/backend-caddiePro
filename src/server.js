@@ -14,6 +14,7 @@ import messagesRoutes from './routes/messages.js';
 import dispatchRoutes from './routes/dispatch.js';
 import scheduleRoutes from './routes/schedule.js';
 import publicRoutes from './routes/public.js';
+import queueRoutes from './routes/queue.js';
 
 // Import WebSocket initialization
 import { initializeWebSocket, getWebSocketStats } from './config/websocket.js';
@@ -92,6 +93,7 @@ app.use('/api/messages', messagesRoutes);
 app.use('/api/dispatch', dispatchRoutes);
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/queue', queueRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -107,6 +107,51 @@ export function emitQueueUpdated(category) {
 }
 
 /**
+ * Emit queue position updated event (for operational status changes)
+ * @param {string} caddieId - Caddie ID that was updated
+ * @param {object} updates - Updated fields (operationalStatus, lastDispatchedAt)
+ * @param {string} category - Caddie's category
+ */
+export function emitQueuePositionUpdated(caddieId, updates, category) {
+  emitToAll('queue:position_updated', {
+    caddieId,
+    updates,
+    category,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Emit caddie promoted event (for category promotion)
+ * @param {string} caddieId - Caddie ID that was promoted
+ * @param {string} oldCategory - Previous category
+ * @param {string} newCategory - New category
+ * @param {number} oldPosition - Previous position
+ * @param {number} newPosition - New position
+ */
+export function emitCaddiePromoted(caddieId, oldCategory, newCategory, oldPosition, newPosition) {
+  emitToAll('caddie:promoted', {
+    caddieId,
+    oldCategory,
+    newCategory,
+    oldPosition,
+    newPosition,
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Emit queue recalculated event (for queue position recalculation)
+ * @param {string} category - Category that was recalculated
+ */
+export function emitQueueRecalculated(category) {
+  emitToAll('queue:recalculated', {
+    category,
+    timestamp: Date.now(),
+  });
+}
+
+/**
  * Emit schedule updated event
  * @param {string} day - Day that was updated
  */
@@ -175,6 +220,9 @@ export default {
   emitCaddieDeleted,
   emitCaddieDispatched,
   emitQueueUpdated,
+  emitQueuePositionUpdated,
+  emitCaddiePromoted,
+  emitQueueRecalculated,
   emitListUpdated,
   emitMessageBroadcast,
   emitDailyAttendanceUpdated,

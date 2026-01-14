@@ -11,18 +11,17 @@ export class PublicService {
   async getPublicQueue() {
     const listConfigs = await prisma.listConfig.findMany();
 
-    const queue = {
-      Primera: [],
-      Segunda: [],
-      Tercera: [],
-    };
+    const queue = {};
+    // Initialize all categories with empty arrays
+    for (const category of VALID_CATEGORIES) {
+      queue[category] = [];
+    }
 
     for (const config of listConfigs) {
       const caddies = await prisma.caddie.findMany({
         where: {
           isActive: true,
           category: config.category,
-          status: { in: ['AVAILABLE', 'LATE'] },
           number: {
             gte: config.rangeStart,
             lte: config.rangeEnd,
@@ -36,7 +35,6 @@ export class PublicService {
         id: c.id,
         name: c.name,
         number: c.number,
-        status: c.status,
         category: c.category,
         weekendPriority: c.weekendPriority,
       }));
@@ -49,7 +47,6 @@ export class PublicService {
           where: {
             isActive: true,
             category,
-            status: { in: ['AVAILABLE', 'LATE'] },
           },
           orderBy: [{ number: 'asc' }],
           take: 5,
@@ -59,7 +56,6 @@ export class PublicService {
           id: c.id,
           name: c.name,
           number: c.number,
-          status: c.status,
           category: c.category,
           weekendPriority: c.weekendPriority,
         }));
@@ -76,15 +72,11 @@ export class PublicService {
    * Get all caddies organized by list/category (public access)
    */
   async getPublicCaddies(filters = {}) {
-    const { status, location } = filters;
+    const { location } = filters;
 
     const where = {
       isActive: true,
     };
-
-    if (status) {
-      where.status = status;
-    }
 
     if (location) {
       where.location = location;
@@ -105,7 +97,6 @@ export class PublicService {
         id: c.id,
         name: c.name,
         number: c.number,
-        status: c.status,
         category: c.category,
         weekendPriority: c.weekendPriority,
         location: c.location,
@@ -123,8 +114,6 @@ export class PublicService {
    * Get caddies from a specific list (public access)
    */
   async getPublicCaddiesByList(listNumber, filters = {}) {
-    const { status } = filters;
-
     if (!['1', '2', '3'].includes(listNumber)) {
       throw new Error('Invalid list number. Must be 1, 2, or 3');
     }
@@ -141,10 +130,6 @@ export class PublicService {
       category,
     };
 
-    if (status) {
-      where.status = status;
-    }
-
     const caddies = await prisma.caddie.findMany({
       where,
       orderBy: [{ number: 'asc' }],
@@ -157,7 +142,6 @@ export class PublicService {
         id: c.id,
         name: c.name,
         number: c.number,
-        status: c.status,
         category: c.category,
         weekendPriority: c.weekendPriority,
         location: c.location,

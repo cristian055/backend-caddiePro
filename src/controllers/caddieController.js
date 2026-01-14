@@ -1,6 +1,7 @@
 import { caddieService } from '../services/caddieService.js';
 import { attendanceService } from '../services/attendanceService.js';
-import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged, emitDailyAttendanceUpdated } from '../utils/websocketEmitter.js';
+import { categoryPromotionService } from '../services/categoryPromotionService.js';
+import { emitCaddieAdded, emitCaddieUpdated, emitCaddieDeleted, emitCaddieStatusChanged, emitDailyAttendanceUpdated, emitQueueUpdated } from '../utils/websocketEmitter.js';
 
 /**
  * GET /caddies
@@ -174,27 +175,14 @@ export const updateCaddie = async (req, res) => {
   try {
     const { id } = req.params;
     const { updates } = req.body;
-    const { updated, previousStatus } = await caddieService.updateCaddie(id, updates);
+    const { updated, numberReassigned } = await caddieService.updateCaddie(id, updates);
 
-    // Handle attendance updates if status changed
-    if (updates.status !== undefined && updates.status !== previousStatus) {
-      const attendanceStatuses = ['ABSENT', 'ON_LEAVE', 'LATE'];
-      if (attendanceStatuses.includes(updates.status)) {
-        const attendance = await attendanceService.handleAttendanceForStatusChange(id, updates.status);
-        emitDailyAttendanceUpdated(attendance);
-      }
-    }
-
-    // Emit WebSocket events
     emitCaddieUpdated(id, updates, updated.category);
-
-    if (updates.status !== undefined && updates.status !== previousStatus) {
-      emitCaddieStatusChanged(updated, previousStatus);
-    }
+    emitQueueUpdated(updated.category);
 
     res.json({
       success: true,
-      data: updated,
+      data: { ...updated, numberReassigned: numberReassigned || false },
     });
   } catch (error) {
     console.error('Update caddie error:', error);
@@ -238,7 +226,7 @@ export const deleteCaddie = async (req, res) => {
 
 /**
  * PATCH /caddies/:id/status
- * Update caddie status
+ * Update caddie operational status
  */
 export const updateCaddieStatus = async (req, res) => {
   try {
@@ -246,25 +234,14 @@ export const updateCaddieStatus = async (req, res) => {
     const { status } = req.body;
     const { caddie, previousStatus } = await caddieService.updateCaddieStatus(id, status);
 
-    // Handle IN_PREP - create PRESENT attendance
-    if (status === 'IN_PREP') {
-      const attendance = await attendanceService.handleAttendanceForStatusChange(id, 'PRESENT');
-      emitDailyAttendanceUpdated(attendance);
-    }
-
     // Handle service completion (IN_FIELD from IN_PREP)
     if (status === 'IN_FIELD' && previousStatus === 'IN_PREP') {
       const attendance = await attendanceService.incrementServicesCount(id);
       emitDailyAttendanceUpdated(attendance);
     }
 
-    // Handle attendance statuses
-    if (['ABSENT', 'ON_LEAVE', 'LATE'].includes(status)) {
-      const attendance = await attendanceService.handleAttendanceForStatusChange(id, status);
-      emitDailyAttendanceUpdated(attendance);
-    }
-
     emitCaddieStatusChanged(caddie, previousStatus);
+    emitQueueUpdated(caddie.category);
 
     res.json({
       success: true,
@@ -272,7 +249,7 @@ export const updateCaddieStatus = async (req, res) => {
         id: caddie.id,
         name: caddie.name,
         number: caddie.number,
-        status: caddie.status,
+        operationalStatus: caddie.operationalStatus,
         previousStatus,
       },
     });
@@ -289,6 +266,66 @@ export const updateCaddieStatus = async (req, res) => {
     });
   }
 };
+
+/**
+ * POST /caddies/promote
+ * Promote a caddie to a higher category
+ */
+export const promoteCaddie = async (req, res) => {
+  try {
+    const { caddieId, newCategory } = req.body;
+    if (!caddieId || !newCategory) {
+      return res.status(400).json({ success: false, error: { code: 'MISSING_FIELDS', message: 'caddieId and newCategory are required' } });
+    }
+
+    const caddie = await caddieService.getCaddieById(caddieId);
+    if (!caddie) {
+      return res.status(404).json({ success: false, error: { code: 'CADDIE_NOT_FOUND', message: 'Caddie not found' } });
+    }
+
+    const result = await categoryPromotionService.promoteCaddie(caddieId, caddie.category, newCategory);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: result.error,
+          message: getPromotionErrorMessage(result.error),
+          details: result,
+        },
+      });
+    }
+
+    emitQueueUpdated(caddie.category);
+    emitQueueUpdated(newCategory);
+
+    return res.json({
+      success: true,
+      data: {
+        caddie: result.caddie,
+        oldPosition: result.oldPosition,
+        newPosition: result.newPosition,
+        queueRecalculated: true,
+      },
+    });
+  } catch (error) {
+    console.error('Promote caddie error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: error.message || 'Internal server error' },
+    });
+  }
+};
+
+function getPromotionErrorMessage(errorCode) {
+  const messages = {
+    CADDIE_NOT_IN_QUEUE: 'Caddie is not in queue',
+    CADDIE_NOT_AVAILABLE: 'Caddie must be AVAILABLE to be promoted',
+    CADDIE_IN_FIELD: 'Caddie is currently IN_FIELD and cannot be promoted',
+    INVALID_TRANSITION: 'Cannot promote to this category',
+  };
+  return messages[errorCode] || 'Unknown promotion error';
+}
 
 // Legacy support
 export const getCaddiesByList = async (req, res) => {
