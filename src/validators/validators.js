@@ -2,14 +2,17 @@
  * Common validation utilities for backend controllers
  */
 
-// Valid value sets
-export const VALID_STATUSES = ['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'LATE', 'ABSENT', 'ON_LEAVE'];
-export const VALID_CATEGORIES = ['Primera', 'Segunda', 'Tercera'];
-export const VALID_LOCATIONS = ['Llanogrande', 'Medellín'];
-export const VALID_ROLES = ['Golf', 'Tennis', 'Hybrid'];
-export const VALID_ORDER_TYPES = ['ASC', 'DESC', 'RANDOM', 'MANUAL'];
-export const VALID_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+// Valid value sets - Updated for new schema with enums
+export const VALID_OPERATIONAL_STATUSES = ['AVAILABLE', 'IN_PREP', 'IN_FIELD'];
 export const VALID_ATTENDANCE_STATUSES = ['PRESENT', 'LATE', 'ABSENT', 'ON_LEAVE'];
+export const VALID_CATEGORIES = ['PRIMERA', 'SEGUNDA', 'TERCERA'];
+export const VALID_LOCATIONS = ['Llanogrande', 'Medellín'];
+export const VALID_ROLES = ['GOLF', 'TENNIS', 'HYBRID'];
+export const VALID_ORDER_TYPES = ['ASC', 'DESC', 'RANDOM', 'MANUAL'];
+export const VALID_DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+// Legacy: Kept for backward compatibility, will be deprecated
+export const VALID_STATUSES = ['AVAILABLE', 'IN_PREP', 'IN_FIELD', 'LATE', 'ABSENT', 'ON_LEAVE'];
 
 /**
  * Validate value against allowed set
